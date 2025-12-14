@@ -1,0 +1,86 @@
+# ==========================
+# 🛑 操作系统与通用文件
+# ==========================
+.DS_Store
+Thumbs.db
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# ==========================
+# 🐍 后端 (Python / Flask)
+# ==========================
+# 1. 虚拟环境
+venv/
+.venv/
+env/
+
+# 2. Python 编译文件
+__pycache__/
+*.py[cod]
+
+# 3. 数据库与实例文件夹 (本地数据不上传)
+*.db
+*.sqlite
+*.sqlite3
+instance/
+
+# 4. 环境变量与密钥 (⚠️ 严禁上传)
+.env
+.flaskenv
+
+# ==========================
+# ⚡ 前端 (Vue / Node)
+# ==========================
+# 1. 依赖包
+node_modules/
+
+# 2. 构建输出
+dist/
+dist-ssr/
+
+# 3. 本地配置
+*.local
+
+# 4. 缓存
+.eslintcache
+*.tsbuildinfo
+
+# ==========================
+# 🧪 测试工具
+# ==========================
+coverage/
+test-results/
+playwright-report/
+cypress/videos/
+cypress/screenshots/
+__screenshots__/
+
+# ==========================
+# 💻 编辑器配置
+# ==========================
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# ==========================
+# 📂 用户上传与日志 (关键修改)
+# ==========================
+# 1. 忽略后端日志文件夹下的所有文件，但保留 .gitkeep
+back/logs/*
+!back/logs/.gitkeep
+
+# 2. 忽略用户上传的所有文件，但保留 .gitkeep
+back/src/static/uploads/*
+!back/src/static/uploads/.gitkeep
+
+# 3. (可选) 如果你以后有临时的导出文件
+back/src/static/temp/*

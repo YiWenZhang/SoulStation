@@ -14,10 +14,8 @@ class Config:
 
 class DevelopmentConfig(Config):
     DEBUG = True
-    # 路径中增加了 'instance'
-    # 最终结果：sqlite:///.../back/instance/soulstation.db
-    SQLALCHEMY_DATABASE_URI = os.environ.get('SQLALCHEMY_DATABASE_URI') or \
-        'sqlite:///' + os.path.join(basedir, 'instance', 'soulstation.db')
+    SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL') or \
+                              'mysql+pymysql://root:123456@localhost:3306/soulstation_db'
 
 class ProductionConfig(Config):
     DEBUG = False

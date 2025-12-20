@@ -10,7 +10,7 @@ class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     # 登录凭证
     phone = db.Column(db.String(20), unique=True, index=True)
-    password_hash = db.Column(db.String(128))
+    password_hash = db.Column(db.String(255))
 
     # 用户画像
     nickname = db.Column(db.String(50))

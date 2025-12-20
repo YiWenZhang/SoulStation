@@ -12,7 +12,10 @@ def create_app(config_name='default'):
     ma.init_app(app)
     migrate.init_app(app, db)
     socketio.init_app(app, cors_allowed_origins="*")
-
+    # === 【这里一定要加这一句】 ===
+    # 让 Flask 知道数据库表结构(models)的存在
+    from . import models
+    # ==========================
     # 2. 注册路由
     from .routes import register_blueprints
     register_blueprints(app)

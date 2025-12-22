@@ -377,7 +377,27 @@ def submit_assessment():
     if not isinstance(answers, dict) or not answers:
         return jsonify({"code": 400, "msg": "没有答题数据，无法提交"}), 400
 
-    # 2. SCL-90 算分逻辑
+    # ======================================================
+    # 【新增逻辑】 2. 完整性校验：检查是否答完了所有题目
+    # ======================================================
+    # 获取当前启用题目的总数
+    total_questions_count = Question.query.filter_by(is_enabled=True).count()
+
+    # 也就是检查提交的答案数量是否等于题目总数
+    # (注意：answers 的 key 是题目ID，数量即为已答题数)
+    if len(answers) < total_questions_count:
+        missing_count = total_questions_count - len(answers)
+        return jsonify({
+            "code": 400,
+            "msg": f"还有 {missing_count} 道题目未完成，请继续作答",
+            "data": {
+                "total": total_questions_count,
+                "answered": len(answers)
+            }
+        }), 400
+    # ======================================================
+
+    # 3. SCL-90 算分逻辑
     #    需要查询所有题目对应的维度 (Category)
     #    这里做一个批量查询优化，把题目ID映射到 Category Name
 

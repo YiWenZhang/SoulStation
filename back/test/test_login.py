@@ -1,128 +1,213 @@
-import requests
+import unittest
 import json
-import random
+# === 修改这里的导入路径 ===
+from src import create_app         # 从 src/__init__.py 导入工厂函数
+from src.extensions import db      # 从 src/extensions.py 导入 db 对象
+from src.models import User        # 从 src/models.py 导入 User 模型
+# 例如：如果你的 app 在 back/src/__init__.py 创建，可能需要 from back.src import create_app 等
 
-# 配置
-BASE_URL = "http://127.0.0.1:5000/api/auth"
-# 必须与后端 config.py 中的 ADMIN_SECRET_KEY 一致
-ADMIN_KEY_CORRECT = "SoulStation2025_Admin"
-ADMIN_KEY_WRONG = "Im_A_Hacker"
+class SoulStationAPITestCase(unittest.TestCase):
+    def setUp(self):
+        """测试前置操作：配置测试环境"""
+        # 1. 使用工厂函数创建一个 app 实例
+        # 【修改点】：将 'testing' 改为 'default'
+        self.app = create_app('default')
+
+        # 2. 强制修改配置用于测试
+        # 这里会覆盖 default 中的配置，确保测试使用内存数据库
+        self.app.config.update({
+            "TESTING": True,
+            "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:",
+            "SQLALCHEMY_TRACK_MODIFICATIONS": False,
+            "ADMIN_SECRET_KEY": "SoulStation2025_Admin"
+        })
+
+        # 3. 初始化客户端和上下文
+        self.client = self.app.test_client()
+        self.app_context = self.app.app_context()
+        self.app_context.push()
+
+        # 4. 创建表结构
+        db.create_all()
+
+    def tearDown(self):
+        """测试后置操作：清理环境"""
+        db.session.remove()
+        db.drop_all()
+        self.app_context.pop()
+
+    # ==========================================================
+    # 1. 注册接口测试 (Register Tests)
+    # ==========================================================
+
+    def test_register_normal_user_success(self):
+        """测试：普通用户注册成功 (200)"""
+        payload = {
+            "phone": "13800000001",
+            "password": "password123",  # 长度合法
+            "role": "user"
+        }
+        response = self.client.post('/api/auth/register', json=payload)
+        data = response.get_json()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(data['code'], 200)
+        self.assertIn("用户注册成功", data['msg'])
+
+        # 验证数据库
+        user = User.query.filter_by(phone="13800000001").first()
+        self.assertIsNotNone(user)
+        self.assertEqual(user.role, 'user')
+
+    def test_register_admin_success(self):
+        """测试：管理员注册成功 - 密钥正确 (200)"""
+        payload = {
+            "phone": "13900000001",
+            "password": "adminpass",
+            "role": "admin",
+            "admin_key": "SoulStation2025_Admin"  # 正确密钥
+        }
+        response = self.client.post('/api/auth/register', json=payload)
+        data = response.get_json()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("管理员注册成功", data['msg'])
+
+        # 验证角色
+        user = User.query.filter_by(phone="13900000001").first()
+        self.assertEqual(user.role, 'admin')
+
+    def test_register_admin_wrong_key(self):
+        """测试：管理员注册失败 - 密钥错误 (403)"""
+        payload = {
+            "phone": "13900000002",
+            "password": "adminpass",
+            "role": "admin",
+            "admin_key": "WrongKey_123"
+        }
+        response = self.client.post('/api/auth/register', json=payload)
+        data = response.get_json()
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(data['code'], 403)
+        self.assertEqual(data['msg'], "管理员密钥错误，无法注册")
+
+    # --- 新增校验逻辑测试 ---
+
+    def test_register_password_too_short(self):
+        """测试：密码长度过短 (400)"""
+        payload = {
+            "phone": "13800000001",
+            "password": "123",  # < 6位
+            "role": "user"
+        }
+        response = self.client.post('/api/auth/register', json=payload)
+        data = response.get_json()
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(data['msg'], "密码长度不能少于6位")
+
+    def test_register_password_too_long(self):
+        """测试：密码长度过长 (400)"""
+        payload = {
+            "phone": "13800000001",
+            "password": "a" * 21,  # > 20位
+            "role": "user"
+        }
+        response = self.client.post('/api/auth/register', json=payload)
+        data = response.get_json()
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(data['msg'], "密码长度不能超过20位")
+
+    def test_register_invalid_phone_format(self):
+        """测试：手机号格式错误 (400)"""
+        # 情况1: 长度不对
+        res1 = self.client.post('/api/auth/register', json={
+            "phone": "138", "password": "password123"
+        })
+        self.assertEqual(res1.status_code, 400)
+        self.assertEqual(res1.get_json()['msg'], "请输入有效的11位手机号码")
+
+        # 情况2: 包含非数字
+        res2 = self.client.post('/api/auth/register', json={
+            "phone": "1380000000a", "password": "password123"
+        })
+        self.assertEqual(res2.status_code, 400)
+        self.assertEqual(res2.get_json()['msg'], "请输入有效的11位手机号码")
+
+    # -----------------------
+
+    def test_register_duplicate_phone(self):
+        """测试：手机号已存在 (400)"""
+        # 先注册一个
+        self.client.post('/api/auth/register', json={
+            "phone": "13800000001", "password": "password123"
+        })
+
+        # 再次注册
+        response = self.client.post('/api/auth/register', json={
+            "phone": "13800000001", "password": "newpassword"
+        })
+        data = response.get_json()
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(data['msg'], "该手机号已注册，请直接登录")
+
+    # ==========================================================
+    # 2. 登录接口测试 (Login Tests)
+    # ==========================================================
+
+    def test_login_success_return_role(self):
+        """测试：登录成功并返回 Role (200)"""
+        # 注册管理员
+        self.client.post('/api/auth/register', json={
+            "phone": "15000000000",
+            "password": "password123",
+            "role": "admin",
+            "admin_key": "SoulStation2025_Admin"
+        })
+
+        # 登录
+        response = self.client.post('/api/auth/login', json={
+            "phone": "15000000000",
+            "password": "password123"
+        })
+        data = response.get_json()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(data['code'], 200)
+
+        # 关键验证
+        self.assertIn('data', data)
+        self.assertEqual(data['data']['role'], 'admin')  # 确保返回了 role
+        self.assertIn('token', data['data'])
+
+    def test_login_fail_wrong_password(self):
+        """测试：登录密码错误 (401)"""
+        self.client.post('/api/auth/register', json={
+            "phone": "15000000001", "password": "rightpassword"
+        })
+
+        response = self.client.post('/api/auth/login', json={
+            "phone": "15000000001",
+            "password": "wrongpassword"
+        })
+        data = response.get_json()
+
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(data['code'], 401)
+        self.assertEqual(data['msg'], "账号或密码错误")
+
+    def test_login_fail_user_not_found(self):
+        """测试：用户不存在 (401)"""
+        response = self.client.post('/api/auth/login', json={
+            "phone": "19999999999",
+            "password": "any"
+        })
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.get_json()['msg'], "账号或密码错误")
 
 
-def generate_phone():
-    """随机生成手机号，避免重复"""
-    return f"139{random.randint(10000000, 99999999)}"
-
-
-def print_separator(title):
-    print(f"\n{'=' * 50}")
-    print(f"   {title}")
-    print(f"{'=' * 50}")
-
-
-# ==========================================
-# 1. 测试普通用户流程
-# ==========================================
-def test_user_flow():
-    print_separator("测试场景 A: 普通用户")
-    phone = generate_phone()
-
-    # --- 1.1 注册 ---
-    url_reg = f"{BASE_URL}/register"
-    payload_reg = {
-        "phone": phone,
-        "password": "user123",
-        "nickname": "普通用户01"
-        # 不传 role，默认就是 user
-    }
-    print(f"[1. 注册] 尝试注册普通用户: {phone}")
-    resp = requests.post(url_reg, json=payload_reg)
-    print(f"   -> 状态码: {resp.status_code}, 消息: {resp.json().get('msg')}")
-
-    # --- 1.2 登录 ---
-    url_login = f"{BASE_URL}/login"
-    payload_login = {
-        "phone": phone,
-        "password": "user123"
-    }
-    print(f"[2. 登录] 尝试登录...")
-    resp = requests.post(url_login, json=payload_login)
-    data = resp.json()
-
-    if data['code'] == 200:
-        role = data['data'].get('role')
-        uid = data['data'].get('uid')
-        print(f"   >>> [通过] 登录成功! UID: {uid}, 角色: {role}")
-        if role != 'user':
-            print(f"   !!! [警告] 预期角色是 user，但实际是 {role}")
-    else:
-        print(f"   >>> [失败] {data.get('msg')}")
-
-
-# ==========================================
-# 2. 测试管理员流程
-# ==========================================
-def test_admin_flow():
-    print_separator("测试场景 B: 管理员 (含密钥验证)")
-    phone = generate_phone()
-    url_reg = f"{BASE_URL}/register"
-
-    # --- 2.1 注册失败测试 (密钥错误) ---
-    print(f"[1. 负面测试] 尝试用错误密钥注册管理员: {phone}")
-    payload_wrong = {
-        "phone": phone,
-        "password": "admin123",
-        "role": "admin",
-        "admin_key": ADMIN_KEY_WRONG  # <--- 错误的
-    }
-    resp = requests.post(url_reg, json=payload_wrong)
-    print(f"   -> 状态码: {resp.status_code} (预期 403)")
-    print(f"   -> 消息: {resp.json().get('msg')}")
-
-    if resp.status_code != 403:
-        print("   !!! [严重错误] 后端没有拦截错误的管理员注册请求！")
-        return
-
-    # --- 2.2 注册成功测试 (密钥正确) ---
-    print(f"\n[2. 正面测试] 尝试用正确密钥注册管理员...")
-    payload_correct = {
-        "phone": phone,  # 复用同一个手机号，因为上一步注册应该失败了，手机号未被占用
-        "password": "admin123",
-        "role": "admin",
-        "admin_key": ADMIN_KEY_CORRECT,  # <--- 正确的
-        "nickname": "超级管理员"
-    }
-    resp = requests.post(url_reg, json=payload_correct)
-    print(f"   -> 状态码: {resp.status_code}, 消息: {resp.json().get('msg')}")
-
-    # --- 2.3 登录验证角色 ---
-    print(f"\n[3. 登录] 管理员登录检查角色...")
-    url_login = f"{BASE_URL}/login"
-    payload_login = {
-        "phone": phone,
-        "password": "admin123"
-    }
-    resp = requests.post(url_login, json=payload_login)
-    data = resp.json()
-
-    if data['code'] == 200:
-        role = data['data'].get('role')
-        print(f"   >>> [通过] 登录成功! 角色: {role}")
-        if role == 'admin':
-            print("   >>> [完美] 前端识别到 admin，应跳转至后台管理页。")
-        else:
-            print(f"   !!! [失败] 期望 admin，实际是 {role}")
-    else:
-        print(f"   >>> [失败] {data.get('msg')}")
-
-
-if __name__ == "__main__":
-    try:
-        # 先测普通用户
-        test_user_flow()
-        # 再测管理员
-        test_admin_flow()
-    except requests.exceptions.ConnectionError:
-        print("\n[错误] 连接被拒绝。请确保后端服务 (run.py) 正在运行！")
-    except Exception as e:
-        print(f"\n[错误] 测试脚本发生未知异常: {e}")
+if __name__ == '__main__':
+    unittest.main()

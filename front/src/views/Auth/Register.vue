@@ -55,6 +55,8 @@
         </div>
 
         <div v-if="error" class="error-message">{{ error }}</div>
+        <!-- 新增：注册成功提示（可选，替代alert的更友好样式） -->
+        <div v-if="success" class="success-message">{{ success }}</div>
 
         <button type="submit" class="auth-button" :disabled="authStore.loading">
           <span v-if="!authStore.loading">注册</span>
@@ -74,14 +76,25 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useAuthStore } from '../../stores/auth'
+import { useRouter } from 'vue-router'
+// 导入注册参数类型（和auth.ts保持一致）
+interface RegisterUserData {
+  phone: string
+  password: string
+  nickname: string
+  role?: 'admin'
+  admin_key?: string
+}
 
 const authStore = useAuthStore()
+const router = useRouter() // 新增：导入路由实例
 const phone = ref('')
 const nickname = ref('')
 const password = ref('')
 const isAdmin = ref(false)
 const adminKey = ref('')
 const error = ref('')
+const success = ref('') // 新增：注册成功提示文本
 
 const handleAdminChange = (e: Event) => {
   isAdmin.value = (e.target as HTMLInputElement).checked
@@ -92,6 +105,7 @@ const handleAdminChange = (e: Event) => {
 
 const handleRegister = async () => {
   error.value = ''
+  success.value = ''
 
   // 基本验证
   if (isAdmin.value && !adminKey.value) {
@@ -100,7 +114,8 @@ const handleRegister = async () => {
   }
 
   try {
-    const userData: any = {
+    // 修复：替换any为明确的RegisterUserData类型
+    const userData: RegisterUserData = {
       phone: phone.value,
       password: password.value,
       nickname: nickname.value,
@@ -112,9 +127,23 @@ const handleRegister = async () => {
       userData.admin_key = adminKey.value
     }
 
-    await authStore.register(userData)
+    // 调用注册接口
+    const response = await authStore.register(userData)
+    // 注册成功判断（根据后端返回的code）
+    if (response.code === 200) {
+      success.value = '注册成功！即将为您跳转到登录页...'
+      // 延迟1.5秒跳转，让用户看到提示
+      setTimeout(() => {
+        router.push('/login')
+        // 跳转后清空表单（可选）
+        phone.value = ''
+        nickname.value = ''
+        password.value = ''
+        adminKey.value = ''
+        isAdmin.value = false
+      }, 1500)
+    }
   } catch (err) {
-    // 修复ESLint未使用变量警告
     console.error('注册失败:', err)
     error.value = authStore.error || '注册失败，请检查信息'
   }
@@ -287,6 +316,18 @@ body {
   background-color: #ffebee;
   border-radius: 6px;
   margin: 0; /* 清除默认margin */
+}
+
+/* 新增：注册成功提示样式 */
+.success-message {
+  color: #43a047;
+  font-size: 14px;
+  text-align: center;
+  padding: 10px;
+  background-color: #e8f5e9;
+  border-radius: 6px;
+  margin: 0;
+  animation: fadeIn 0.3s ease;
 }
 
 .auth-link {

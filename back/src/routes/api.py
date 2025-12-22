@@ -3,7 +3,8 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime
 import secrets
 from ..extensions import db
-from ..models import User
+from ..models import User, AssessmentSession, AssessmentReport
+from sqlalchemy import desc
 
 api_bp = Blueprint('api', __name__, url_prefix='/api')
 
@@ -114,3 +115,62 @@ def login():
 
     else:
         return jsonify({"code": 401, "msg": "手机号或密码错误"}), 200
+
+
+# ==========================================
+# 3. 首页数据接口 (Home Dashboard)
+# ==========================================
+@api_bp.route('/home/index', methods=['GET'])
+def home_index():
+    # 1. 获取并校验参数 (严格限制为已登录用户)
+    uid = request.args.get('uid')
+    if not uid:
+        return jsonify({"code": 401, "msg": "未登录，请先登录"}), 401
+
+    user = User.query.get(uid)
+    if not user:
+        return jsonify({"code": 404, "msg": "用户不存在"}), 404
+
+    # 2. 核心数据一：改善追踪提醒
+    # 逻辑：距离上次测评超过 30 天则提示
+    reminder_data = {"show": False, "message": ""}
+
+    if user.last_assessment_at:
+        days_diff = (datetime.utcnow() - user.last_assessment_at).days
+        if days_diff >= 30:
+            reminder_data = {
+                "show": True,
+                "message": f"距离上次测评已过 {days_diff} 天，建议进行复测以追踪改善情况。"
+            }
+
+    # 3. 核心数据二：历史记录
+    # 获取用户已完成('completed')的最近记录
+    history_list = []
+    recent_sessions = AssessmentSession.query.filter_by(
+        user_id=uid,
+        status='completed'
+    ).order_by(desc(AssessmentSession.updated_at)).limit(3).all()  # 限制返回最近3条
+
+    for session in recent_sessions:
+        if session.report:
+            history_list.append({
+                "id": session.report.id,
+                "date": session.report.generated_at.strftime('%Y-%m-%d'),
+                "mode": session.mode,
+                "risk_level": session.report.risk_level,
+                "summary": session.report.summary_short
+            })
+
+    # 4. 构造返回
+    return jsonify({
+        "code": 200,
+        "msg": "获取成功",
+        "data": {
+            "user_info": {
+                "nickname": user.nickname,
+                "avatar_url": user.avatar_url
+            },
+            "tracking_reminder": reminder_data,
+            "history_records": history_list
+        }
+    })

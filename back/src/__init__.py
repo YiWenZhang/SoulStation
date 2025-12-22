@@ -16,7 +16,12 @@ def create_app(config_name='default'):
     # 让 Flask 知道数据库表结构(models)的存在
     from . import models
     # ==========================
-    # 2. 注册路由
+    # 2. 注册 CLI 命令 (新增)
+    # ==========================
+    from .commands import seed_scl90_command  # 导入我们在 commands.py 定义的函数
+    app.cli.add_command(seed_scl90_command)  # 注册到 flask 命令集中
+    # ==========================
+    # 3. 注册路由
     from .routes import register_blueprints
     register_blueprints(app)
 

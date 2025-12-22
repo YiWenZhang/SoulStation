@@ -25,6 +25,7 @@ class User(db.Model):
     role = db.Column(db.String(20), default='user', index=True)
 
     # 状态
+    last_assessment_at = db.Column(db.DateTime, comment='最近一次完成测评的时间')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     last_login_at = db.Column(db.DateTime)
 

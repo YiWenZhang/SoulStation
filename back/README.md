@@ -22,4 +22,6 @@ cd back
 flask --app run db migrate -m "add question tables"
 flask --app run db upgrade
 flask --app run init-data
+
+flask init-data
 ```

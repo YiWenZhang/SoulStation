@@ -4,6 +4,8 @@ import AdminDashboard from '../views/Admin/Dashboard.vue'
 import Login from '../views/Auth/Login.vue'
 import Register from '../views/Auth/Register.vue'
 import Test from '../views/Test.vue' //原有的App.vue
+import Questionnaire from '../views/Assessment/QuestionnaireView.vue'
+
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
@@ -37,6 +39,20 @@ const router = createRouter({
       meta: { requiresAuth: true, role: 'admin' }, // 需要管理员权限
     },
 
+    // --- 新增测评相关路由 ---
+    {
+      path: '/assessment',
+      name: 'assessment',
+      component: Questionnaire,
+      meta: { requiresAuth: true, role: 'user' },
+    },
+    // 报告页路由（建议也先加上）
+    {
+      path: '/report/:id',
+      name: 'report',
+      component: { template: '<h1>测评报告页面 (Report ID: {{ $route.params.id }})</h1>' },
+      meta: { requiresAuth: true, role: 'user' },
+    },
     { path: '/test', name: 'test', component: Test },
   ],
 })

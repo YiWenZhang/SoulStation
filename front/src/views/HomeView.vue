@@ -308,6 +308,10 @@ const handleLogout = () => {
 }
 
 const gotoAssessment = (mode: string) => {
+  // 打印日志方便调试
+  console.log('正在跳转到测评页, 模式:', mode)
+
+  // 核心跳转代码：确保路由路径 '/assessment' 与 router/index.ts 中定义的 path 一致
   router.push(`/assessment?mode=${mode}`)
 }
 

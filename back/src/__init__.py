@@ -15,6 +15,7 @@ def create_app(config_name='default'):
     # === 【这里一定要加这一句】 ===
     # 让 Flask 知道数据库表结构(models)的存在
     from . import models
+    from .models import User
     # ==========================
     # 2. 注册 CLI 命令 (新增)
     # ==========================

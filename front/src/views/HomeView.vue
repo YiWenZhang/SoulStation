@@ -355,36 +355,20 @@ const viewRecordDetail = (id: string) => {
 
 <style scoped>
 /* 全局样式 */
-:deep(html),
-:deep(body) {
-  margin: 0 !important;
-  padding: 0 !important;
-  height: 100vh;
-  width: 100vw;
-  overflow-x: hidden;
-  box-sizing: border-box;
-}
-
-:deep(#app) {
-  height: 100vh;
-  width: 100vw;
-  overflow-x: hidden;
-}
-
-* {
-  box-sizing: inherit;
-}
 
 /* 页面容器 */
 .home-container {
-  min-height: 100vh;
-  width: 100vw;
+  /* --- 核心修改开始 --- */
+  height: 100vh; /* 强制高度为屏幕高度 */
+  overflow-y: auto; /* 允许竖向滚动 */
+  overflow-x: hidden; /* 禁止横向滚动 */
+  /* --- 核心修改结束 --- */
+
+  width: 100%;
   display: flex;
   flex-direction: column;
   background: linear-gradient(135deg, #f8f9ff 0%, #f0f7ff 50%, #e8f4ff 100%);
   position: relative;
-  overflow-x: hidden;
-  max-width: 100vw;
 }
 
 /* 背景装饰元素 */

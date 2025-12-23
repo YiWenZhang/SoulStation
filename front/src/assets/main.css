@@ -1,35 +1,33 @@
+/* 修改文件: front/src/assets/main.css */
+
+/* 引入基础重置（如果有 base.css 可以保留引入，否则删掉这行） */
 @import './base.css';
 
+/* 核心修复：让 App 占满全屏，取消原有的 grid 和 padding 限制 */
 #app {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 2rem;
+  width: 100%;
+  min-height: 100vh; /* 视口高度 */
+  margin: 0;
+  padding: 0;
+  display: block; /* 取消原本的 grid */
   font-weight: normal;
 }
 
-a,
-.green {
+body {
+  margin: 0;
+  padding: 0;
+  display: block; /* 取消原本的 flex place-items: center */
+  min-height: 100vh;
+  background-color: #f5f7fa; /* 给一个干净的浅灰背景色 */
+}
+
+/* 简单的全局样式 */
+a {
   text-decoration: none;
-  color: hsla(160, 100%, 37%, 1);
-  transition: 0.4s;
-  padding: 3px;
+  color: #409eff; /* 常见的链接蓝 */
+  transition: 0.3s;
 }
 
-@media (hover: hover) {
-  a:hover {
-    background-color: hsla(160, 100%, 37%, 0.2);
-  }
-}
-
-@media (min-width: 1024px) {
-  body {
-    display: flex;
-    place-items: center;
-  }
-
-  #app {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    padding: 0 2rem;
-  }
+* {
+  box-sizing: border-box; /* 极其重要：防止 padding 撑破布局 */
 }

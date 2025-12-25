@@ -20,20 +20,22 @@
     </header>
 
     <main class="main-content">
-      <div class="list-container" v-if="historyList.length > 0">
+      <div v-if="loading" class="loading-state">加载中...</div>
+
+      <div class="list-container" v-else-if="historyList.length > 0">
         <div
           v-for="item in historyList"
-          :key="item.id"
+          :key="item.report_id"
           class="history-card"
-          :class="{ active: selectedId === item.id }"
-          @click="selectReport(item.id)"
+          :class="{ active: selectedId === item.report_id }"
+          @click="selectReport(item.report_id)"
         >
           <div class="status-bar" :class="item.risk_level"></div>
 
           <div class="card-body">
             <div class="card-header-info">
               <div class="meta-info">
-                <span class="date">📅 {{ item.date }}</span>
+                <span class="date">📅 {{ item.report_date }}</span>
                 <span class="mode-tag">{{ item.mode_name }}</span>
               </div>
               <div class="risk-tag" :class="item.risk_level">
@@ -48,13 +50,14 @@
             <div class="consultation-info">
               <div class="info-item">
                 <span class="icon">🩺</span>
-                <span class="label">AI问诊次数:</span>
-                <span class="value highlight">{{ item.consultation_count }}次</span>
+                <span class="label">AI问诊记录:</span>
+                <span class="value highlight">{{ item.consultations?.length || 0 }} 次</span>
               </div>
-              <div class="info-item" v-if="item.last_consultation_time">
+
+              <div class="info-item" v-if="item.consultations && item.consultations.length > 0">
                 <span class="icon">🕒</span>
-                <span class="label">最近问诊:</span>
-                <span class="value">{{ item.last_consultation_time }}</span>
+                <span class="label">最近:</span>
+                <span class="value">{{ item.consultations[0]?.date?.split(' ')[0] }}</span>
               </div>
               <div class="info-item" v-else>
                 <span class="icon">✨</span>
@@ -65,7 +68,7 @@
 
           <div class="card-action">
             <div class="radio-indicator">
-              <div class="radio-inner" v-if="selectedId === item.id"></div>
+              <div class="radio-inner" v-if="selectedId === item.report_id"></div>
             </div>
           </div>
         </div>
@@ -95,22 +98,11 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { getHomeIndex, type HomeResponse } from '../../api/home'
-
-// 1. 获取 API 返回的历史记录单项类型
-type HomeHistoryItem = HomeResponse['data']['history_records'][0]
-
-// 2. 定义扩展后的前端视图类型（包含模拟字段）
-interface ConsultationHistoryItem extends HomeHistoryItem {
-  mode_name: string
-  consultation_count: number
-  last_consultation_time: string | null
-}
+import { getHistoryList, type HistoryItem } from '../../api/history' // 使用我们新建的 api/history.ts
 
 const router = useRouter()
-// 3. 使用明确的类型替代 any[]
-const historyList = ref<ConsultationHistoryItem[]>([])
-const selectedId = ref<number | null>(null) // id 是 number 类型
+const historyList = ref<HistoryItem[]>([])
+const selectedId = ref<number | null>(null)
 const loading = ref(true)
 
 // 获取数据
@@ -120,30 +112,20 @@ onMounted(async () => {
 
   try {
     loading.value = true
-    const res = await getHomeIndex(uid)
-
+    // 调用真实接口
+    const res = await getHistoryList(uid)
     if (res.code === 200) {
-      // 映射并断言类型
-      historyList.value = res.data.history_records.map((item) => {
-        const extendedItem: ConsultationHistoryItem = {
-          ...item,
-          mode_name: item.mode === 'scale' ? '专业量表' : '快速测试',
-          // 模拟数据
-          consultation_count: Math.floor(Math.random() * 3),
-          last_consultation_time: Math.random() > 0.5 ? '2025-06-01 14:00' : null,
-        }
-        return extendedItem
-      })
+      historyList.value = res.data
     }
   } catch (error) {
-    console.error('获取历史记录失败', error)
+    console.error('获取列表失败', error)
   } finally {
     loading.value = false
   }
 })
 
 // 辅助函数
-const getRiskText = (level: string): string => {
+const getRiskText = (level: string) => {
   const map: Record<string, string> = {
     mild: '轻度关注',
     moderate: '中度风险',
@@ -154,12 +136,12 @@ const getRiskText = (level: string): string => {
 }
 
 const getSelectedDate = computed(() => {
-  const item = historyList.value.find((i) => i.id === selectedId.value)
-  return item ? item.date : ''
+  const item = historyList.value.find((i) => i.report_id === selectedId.value)
+  return item ? item.report_date : ''
 })
 
 // 交互方法
-const goHome = () => router.push('/home')
+const goHome = () => router.push('/')
 const goTest = () => router.push('/assessment?mode=scale')
 
 const selectReport = (id: number) => {
@@ -169,23 +151,23 @@ const selectReport = (id: number) => {
 const startConsultation = () => {
   if (!selectedId.value) return
 
-  // TODO: 这里实现后续的跳转逻辑，目前先打印
   console.log('开始问诊，选中的报告ID:', selectedId.value)
-  // router.push(`/consultation/chat?report_id=${selectedId.value}`)
-  alert('即将跳转到聊天界面，Report ID: ' + selectedId.value)
+  // 跳转到聊天界面 (确保你有这个路由，后续我们会写)
+  // 这里的逻辑是：带着 report_id 去创建一个新的对话 Session
+  router.push(`/consultation/chat?report_id=${selectedId.value}`)
 }
 </script>
 
 <style scoped>
+/* 样式保持大部分不变，微调了一些配色 */
 .page-container {
   min-height: 100vh;
   background: #f8f9ff;
   display: flex;
   flex-direction: column;
-  padding-bottom: 80px; /* 为底部栏留空 */
+  padding-bottom: 80px;
 }
 
-/* 头部样式 */
 .page-header {
   background: white;
   padding: 15px 20px;
@@ -216,26 +198,29 @@ const startConsultation = () => {
 .header-title {
   text-align: center;
 }
-
 .header-title h1 {
   font-size: 18px;
   color: #263238;
   margin: 0;
 }
-
 .header-title p {
   font-size: 12px;
   color: #90a4ae;
   margin: 2px 0 0;
 }
 
-/* 列表样式 */
 .main-content {
   flex: 1;
   max-width: 800px;
   margin: 20px auto;
   width: 100%;
   padding: 0 20px;
+}
+
+.loading-state {
+  text-align: center;
+  padding: 40px;
+  color: #999;
 }
 
 .history-card {
@@ -255,7 +240,6 @@ const startConsultation = () => {
   transform: translateY(-2px);
   box-shadow: 0 8px 20px rgba(0, 137, 123, 0.1);
 }
-
 .history-card.active {
   border-color: #00897b;
   background: #f0fdfc;
@@ -274,6 +258,9 @@ const startConsultation = () => {
 .status-bar.severe {
   background: #e53935;
 }
+.status-bar.good {
+  background: #00bcd4;
+}
 
 .card-body {
   flex: 1;
@@ -285,7 +272,6 @@ const startConsultation = () => {
   justify-content: space-between;
   margin-bottom: 8px;
 }
-
 .meta-info {
   font-size: 13px;
   color: #546e7a;
@@ -312,6 +298,10 @@ const startConsultation = () => {
   color: #e53935;
   background: #ffebee;
 }
+.risk-tag.good {
+  color: #00bcd4;
+  background: #e0f7fa;
+}
 
 .card-summary h3 {
   font-size: 16px;
@@ -319,7 +309,6 @@ const startConsultation = () => {
   margin: 0 0 12px 0;
 }
 
-/* 问诊信息区 */
 .consultation-info {
   background: rgba(0, 0, 0, 0.02);
   border-radius: 8px;
@@ -335,25 +324,20 @@ const startConsultation = () => {
   align-items: center;
   gap: 4px;
 }
-
 .info-item .label {
   color: #78909c;
 }
-
 .info-item .value {
   color: #263238;
   font-weight: 600;
 }
-
 .info-item .highlight {
   color: #00897b;
 }
-
 .text-gray {
   color: #90a4ae;
 }
 
-/* 选择按钮 */
 .card-action {
   width: 50px;
   display: flex;
@@ -371,11 +355,9 @@ const startConsultation = () => {
   align-items: center;
   justify-content: center;
 }
-
 .active .radio-indicator {
   border-color: #00897b;
 }
-
 .radio-inner {
   width: 10px;
   height: 10px;
@@ -383,7 +365,6 @@ const startConsultation = () => {
   border-radius: 50%;
 }
 
-/* 底部操作栏 */
 .footer-action {
   position: fixed;
   bottom: 0;
@@ -395,7 +376,6 @@ const startConsultation = () => {
   transform: translateY(100%);
   transition: transform 0.3s ease;
 }
-
 .footer-action.visible {
   transform: translateY(0);
 }
@@ -407,12 +387,10 @@ const startConsultation = () => {
   justify-content: space-between;
   align-items: center;
 }
-
 .selected-tip {
   color: #546e7a;
   font-size: 14px;
 }
-
 .selected-tip span {
   color: #00897b;
   font-weight: 600;
@@ -431,12 +409,10 @@ const startConsultation = () => {
   gap: 8px;
   transition: all 0.3s;
 }
-
 .start-btn:disabled {
   background: #cfd8dc;
   cursor: not-allowed;
 }
-
 .start-btn:hover:not(:disabled) {
   transform: translateY(-2px);
   box-shadow: 0 4px 12px rgba(0, 137, 123, 0.3);
@@ -447,12 +423,10 @@ const startConsultation = () => {
   padding: 60px 0;
   color: #90a4ae;
 }
-
 .empty-icon {
   font-size: 48px;
   margin-bottom: 10px;
 }
-
 .go-test-btn {
   margin-top: 15px;
   padding: 8px 20px;

@@ -1,6 +1,7 @@
 from flask import Blueprint, request, jsonify, current_app
+from sqlalchemy import desc
 from ..extensions import db
-from ..models import AssessmentReport, AIConsultation
+from ..models import AssessmentReport, AIConsultation, AssessmentSession
 from ..utils.prompt_builder import PromptBuilder
 from ..utils.ai_client import AIClient
 
@@ -13,6 +14,63 @@ ai_bp = Blueprint('ai_api', __name__, url_prefix='/api/consultation')
 prompt_builder = PromptBuilder()
 ai_client = AIClient()
 
+
+# ==========================================
+# 【新增】获取用于问诊的历史报告列表
+# GET /api/consultation/history?uid=123
+# ==========================================
+@ai_bp.route('/history', methods=['GET'])
+def get_consultation_history():
+    uid = request.args.get('uid')
+    if not uid:
+        return jsonify({'code': 400, 'msg': 'Missing uid', 'data': []}), 400
+
+    try:
+        # 1. 查询该用户所有已完成的测评会话 (按时间倒序)
+        sessions = AssessmentSession.query.filter_by(
+            user_id=uid,
+            status='completed'
+        ).order_by(desc(AssessmentSession.updated_at)).all()
+
+        result_list = []
+
+        for session in sessions:
+            report = session.report
+            if not report:
+                continue
+
+            # 2. 查询该报告最近一次 AI 问诊记录 (用于显示时间)
+            last_consultation = AIConsultation.query.filter_by(
+                report_id=report.id
+            ).order_by(desc(AIConsultation.updated_at)).first()
+
+            last_time_str = None
+            if last_consultation:
+                last_time_str = last_consultation.updated_at.strftime('%Y-%m-%d %H:%M')
+
+            # 3. 构造前端需要的字段
+            result_list.append({
+                "id": report.id,  # 报告ID
+                "date": report.generated_at.strftime('%Y-%m-%d'),  # 测评日期
+                "mode": session.mode,
+                "mode_name": "AI对话测评" if session.mode == 'ai_chat' else "专业量表测评",
+                "risk_level": report.risk_level,  # good/moderate/severe
+                "summary": report.summary_short,  # 简短结论
+
+                # --- AI 问诊特有字段 ---
+                "consultation_count": report.consultation_count or 0,  # 已问诊次数
+                "last_consultation_time": last_time_str  # 最近问诊时间 (用于显示 "上次问诊于...")
+            })
+
+        return jsonify({
+            "code": 200,
+            "msg": "获取成功",
+            "data": result_list
+        })
+
+    except Exception as e:
+        current_app.logger.error(f"Get consultation history failed: {str(e)}")
+        return jsonify({'code': 500, 'msg': str(e), 'data': []}), 500
 
 # ==========================================
 # 1. 发起问诊 (POST /api/consultation/start)

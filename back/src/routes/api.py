@@ -4,14 +4,13 @@ from datetime import datetime
 import secrets
 from ..extensions import db
 import json
-from ..models import User, AssessmentSession, AssessmentReport, Question, QuestionOption, QuestionCategory
 from sqlalchemy import desc, null
 from sqlalchemy.orm.attributes import flag_modified # 用于强制更新JSON字段
 from ..utils.common import generate_report_markdown, get_dimension_description, get_overall_risk_comment
 from ..models import AssessmentRule
 from ..utils.common import calculate_scl90_level, get_risk_suggestion
 from ..models import AssessmentRule, AssessmentReport  # 确保引入模型
-
+from ..models import User, AssessmentSession, AssessmentReport, Question, QuestionOption, QuestionCategory, AssessmentRule, AIConsultation
 
 api_bp = Blueprint('api', __name__, url_prefix='/api')
 
@@ -181,25 +180,8 @@ def home_index():
                 "message": f"距离上次测评已过 {days_diff} 天，建议进行复测以追踪改善情况。"
             }
 
-    # 3. 核心数据二：历史记录
-    # 获取用户已完成('completed')的最近记录
-    history_list = []
-    recent_sessions = AssessmentSession.query.filter_by(
-        user_id=uid,
-        status='completed'
-    ).order_by(desc(AssessmentSession.updated_at)).limit(3).all()  # 限制返回最近3条
 
-    for session in recent_sessions:
-        if session.report:
-            history_list.append({
-                "id": session.report.id,
-                "date": session.report.generated_at.strftime('%Y-%m-%d'),
-                "mode": session.mode,
-                "risk_level": session.report.risk_level,
-                "summary": session.report.summary_short
-            })
-
-    # 4. 构造返回
+    # 3. 构造返回
     return jsonify({
         "code": 200,
         "msg": "获取成功",
@@ -209,7 +191,6 @@ def home_index():
                 "avatar_url": user.avatar_url
             },
             "tracking_reminder": reminder_data,
-            "history_records": history_list
         }
     })
 
@@ -636,3 +617,97 @@ def get_report_detail():
         }
     })
 
+# ==========================================
+# 9. 历史测评数据获取接口
+# ==========================================
+# 9.1 获取层级历史记录列表 (用于“历史记录”页面)
+# 结构：返回所有已完成的报告，每份报告下包含其所有的 AI 问诊记录
+@api_bp.route('/history/list', methods=['GET'])
+def get_history_list():
+    uid = request.args.get('uid')
+    if not uid:
+        return jsonify({'code': 400, 'msg': '参数缺失: uid'}), 400
+
+    try:
+        # 1. 查出该用户所有已完成的测评会话 (按最后更新时间倒序)
+        sessions = AssessmentSession.query.filter_by(
+            user_id=uid,
+            status='completed'
+        ).order_by(desc(AssessmentSession.updated_at)).all()
+
+        result_list = []
+
+        for session in sessions:
+            report = session.report
+            if not report:
+                continue
+
+            # 2. 查出该报告关联的所有 AI 问诊记录 (按次序倒序，最新的在上面)
+            # 使用模型中定义的 consultations 关系
+            consultations = report.consultations.order_by(desc(AIConsultation.sequence_number)).all()
+
+            consultation_list_data = []
+            for cons in consultations:
+                consultation_list_data.append({
+                    "id": cons.id,
+                    "sequence_number": cons.sequence_number,  # 第几次问诊
+                    "date": cons.updated_at.strftime('%Y-%m-%d %H:%M'),  # 问诊时间
+                    # 简短摘要，用于列表展示，如果没有诊断书说明还在进行中
+                    "summary_snippet": (
+                                cons.diagnosis_summary[:40] + '...') if cons.diagnosis_summary else "问诊进行中...",
+                    "status": "completed" if cons.diagnosis_summary else "ongoing"
+                })
+
+            # 3. 组装父级（测评报告）数据
+            result_list.append({
+                "report_id": report.id,
+                "report_date": report.generated_at.strftime('%Y-%m-%d'),
+                "mode": session.mode,  # 用于前端区分图标
+                "mode_name": "AI对话测评" if session.mode == 'ai_chat' else "专业量表测评",
+                "risk_level": report.risk_level,  # good/moderate/severe
+                "summary": report.summary_short,  # 报告的主结论
+                "total_score": report.total_score,  # 显示分数
+
+                # --- 核心：这里嵌套了该报告下的所有问诊记录 ---
+                "consultations": consultation_list_data
+            })
+
+        return jsonify({
+            "code": 200,
+            "msg": "获取历史记录成功",
+            "data": result_list
+        })
+
+    except Exception as e:
+        print(f"Error getting history: {e}")
+        return jsonify({'code': 500, 'msg': '获取历史记录失败'}), 500
+
+
+# 9.2 获取单次 AI 问诊的详情 (用于点击“记录x”时查看)
+@api_bp.route('/history/consultation/detail', methods=['GET'])
+def get_consultation_detail_in_api():
+    consultation_id = request.args.get('id')
+    if not consultation_id:
+        return jsonify({'code': 400, 'msg': '参数缺失: id'}), 400
+
+    try:
+        cons = AIConsultation.query.get(consultation_id)
+        if not cons:
+            return jsonify({'code': 404, 'msg': '未找到该问诊记录'}), 404
+
+        return jsonify({
+            "code": 200,
+            "msg": "获取成功",
+            "data": {
+                "id": cons.id,
+                "report_id": cons.report_id,
+                "sequence_number": cons.sequence_number,
+                "date": cons.updated_at.strftime('%Y-%m-%d %H:%M'),
+                "chat_history": cons.chat_history,  # 完整的对话记录
+                "diagnosis_report": cons.diagnosis_summary  # 完整的 AI 诊断书
+            }
+        })
+
+    except Exception as e:
+        print(f"Error getting detail: {e}")
+        return jsonify({'code': 500, 'msg': '获取详情失败'}), 500

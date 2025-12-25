@@ -146,78 +146,12 @@ def seed_scl90_command():
     click.echo(f'>>> ✅ 成功！导入了 90 道题目和 {rule_count} 条解释规则。')
 
 
-
-
-
-
-from .models import AIAgentConfig, AIAgentQuestion
-
-# ==========================================
-# 3. AI 问诊顶层配置预设数据
-# ==========================================
-
-DEFAULT_SYSTEM_PROMPT = """你是一位名叫 "SoulStation AI" 的专业心理咨询师。
-你擅长认知行为疗法 (CBT) 和人际关系疗法。
-你的任务是根据用户的 SCL-90 测评报告，引导用户表达现实生活中的压力源，并提供共情支持。
-请始终保持温和、专业、中立的口吻。"""
-
-# 针对各维度的专业引导问题库 (知识库预设)
-DIMENSION_QUESTIONS = [
-    {"dim": "躯体化", "content": "测评显示您近期身体上有不少不适感，这些不舒服通常是在什么情况下变得明显的？",
-     "priority": 5},
-    {"dim": "强迫症状", "content": "您提到的那些反复出现的想法，是否让您感到非常疲惫？", "priority": 5},
-    {"dim": "人际关系敏感", "content": "在与他人相处时，您最担心别人对您产生什么样的看法？", "priority": 5},
-    {"dim": "抑郁", "content": "这种低落的情绪，是从什么时候开始让您感到难以支撑的？", "priority": 5},
-    {"dim": "焦虑", "content": "这种紧绷不安的感觉，除了心理上的压力，是否也影响到了您的睡眠或饮食？", "priority": 5},
-    # 可以继续补充其他维度...
-]
-
-
+# ai配置导入
+from .utils.init_data import init_all_data
 @click.command('init-ai-config')
 @with_appcontext
 def init_ai_config_command():
-    """初始化 AI Agent 顶层配置和维度问题库"""
-    click.echo('>>> 开始初始化 AI 配置...')
+    """初始化 AI Agent 配置、维度问题及规则库"""
+    # 直接调用分离出去的逻辑
+    init_all_data()
 
-    # 1. 初始化全局配置
-    if not AIAgentConfig.query.filter_by(name="心理医生标准版").first():
-        config = AIAgentConfig(
-            name="心理医生标准版",
-            model_name="deepseek-chat",
-            temperature=0.7,
-            system_prompt=DEFAULT_SYSTEM_PROMPT,
-            style_config={
-                "tone": "温和/专业",
-                "banned_words": ["精神病", "神经病", "变态"],
-                "empathy_level": "high"
-            },
-            emotion_recognition_rules={
-                "anxiety": "优先询问近期生活变动",
-                "depression": "侧重于自我价值感的探索"
-            },
-            scoring_rules={
-                "high_risk_threshold": 2.0,
-                "warning_threshold": 3.0
-            },
-            is_active=True
-        )
-        db.session.add(config)
-        click.echo("- 全局 Agent 配置已创建")
-
-    # 2. 初始化维度引导问题
-    active_config = AIAgentConfig.query.filter_by(is_active=True).first()
-    db.session.flush()  # 确保拿到 config.id
-
-    for item in DIMENSION_QUESTIONS:
-        if not AIAgentQuestion.query.filter_by(content=item['content']).first():
-            q = AIAgentQuestion(
-                config_id=active_config.id,
-                content=item['content'],
-                dimension=item['dim'],
-                priority=item['priority'],
-                is_enabled=True
-            )
-            db.session.add(q)
-
-    db.session.commit()
-    click.echo('>>> ✅ AI 顶层配置初始化成功！')

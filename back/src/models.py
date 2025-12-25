@@ -83,13 +83,17 @@ class AssessmentReport(db.Model):
     total_score = db.Column(db.Float, default=0.0, comment='总分')
     total_avg = db.Column(db.Float, default=0.0, comment='总均分')
 
-    # === 【修改】新增字段 ===
-    # 标记是否进行了 AI 问诊。
-    # 也可以用 Integer (0:未开始, 1:进行中, 2:已完成) 来表达更丰富的状态，
-    # 但如果你只需要"是否"，Boolean 也可以。这里推荐用 String 或 Integer 方便扩展。
-    consultation_status = db.Column(db.String(20), default='none', comment='问诊状态: none, ongoing, completed')
-    # 建立与新表的关联关系 (方便通过 report.consultation 直接拿到问诊数据)
-    consultation = db.relationship('AIConsultation', backref='report', uselist=False)
+    # === 【修改】AI 问诊相关字段 ===
+
+    # 1. 新增：问诊次数计数器
+    consultation_count = db.Column(db.Integer, default=0, comment='AI问诊次数')
+
+    # 2. 修改：问诊状态 (建议保留，用于标记当前最新的一次问诊是否正在进行中)
+    consultation_status = db.Column(db.String(20), default='none', comment='当前问诊状态: none, ongoing, completed')
+
+    # 3. 修改：关联关系改为一对多 (uselist=True 或默认不写，去掉 uselist=False)
+    # 将属性名从 consultation 改为 consultations 更加语义化
+    consultations = db.relationship('AIConsultation', backref='report', lazy='dynamic')
 
     generated_at = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -275,22 +279,20 @@ class AIConsultation(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
 
-    # 1. 核心关联：指向哪份报告
-    # 问诊必须基于某份已完成的报告
-    report_id = db.Column(db.Integer, db.ForeignKey('assessment_reports.id'), unique=True, nullable=False)
+    # === 1.关联外键 ===
+    # 去除 unique=True，允许同一 report_id 对应多条记录
+    report_id = db.Column(db.Integer, db.ForeignKey('assessment_reports.id'), nullable=False, index=True)
 
-    # 2. 问诊过程数据
-    # 存储对话历史：[{"role": "ai", "content": "..."}, {"role": "user", "content": "..."}]
-    chat_history = db.Column(JSON, default=list, comment='完整的问诊对话记录')
+    # === 2.复诊次序 ===
+    # 记录这是第几次问诊 (如：1 代表初诊，2 代表第一次复诊...)
+    sequence_number = db.Column(db.Integer, default=1, comment='问诊次序')
 
-    # 3. 问诊结果数据 (P1 需求)
-    # 问诊结束后生成的结构化总结/建议
-    diagnosis_summary = db.Column(MEDIUMTEXT, comment='AI生成的诊断总结与建议(Markdown)')
+    # === 3.问诊数据 ===
+    chat_history = db.Column(JSON, default=list, comment='本次问诊的对话记录')
+    diagnosis_summary = db.Column(MEDIUMTEXT, comment='本次AI生成的诊断总结与建议')
 
-    # 4. 辅助字段
-    current_step = db.Column(db.Integer, default=0, comment='问诊进行到的轮数')
+    current_step = db.Column(db.Integer, default=0)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    # 还可以加一个 user_id 冗余字段方便查询，或者直接通过 report.session.user 查
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)

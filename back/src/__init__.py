@@ -26,5 +26,9 @@ def create_app(config_name='default'):
     # 3. 注册路由
     from .routes import register_blueprints
     register_blueprints(app)
+    # 【新增】显式注册 AI 问诊接口的 Blueprint
+    # 这样 Flask 才能识别 /api/consultation/... 的请求
+    from .routes.ai_api import ai_bp
+    app.register_blueprint(ai_bp)
 
     return app

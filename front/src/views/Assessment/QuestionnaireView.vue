@@ -336,6 +336,46 @@
         <button class="no-questions-btn" @click="goHome">返回首页</button>
       </div>
     </div>
+    <!-- ========== 进入提示对话框========== -->
+    <Teleport to="body">
+      <Transition name="dialog-fade">
+        <div v-if="showResumeDialog" class="dialog-overlay">
+          <div class="dialog-container resume-dialog">
+            <div class="dialog-header">
+              <div class="dialog-icon-wrapper info">
+                <span class="dialog-icon">📂</span>
+              </div>
+              <h3 class="dialog-title">发现未完成的测评</h3>
+            </div>
+            <div class="dialog-body">
+              <p class="dialog-message">
+                系统检测到您上次有一份未完成的测评存档（完成度
+                {{
+                  Math.round(
+                    ((tempSessionData?.current_progress_index || 0) / (questions.length || 1)) *
+                      100,
+                  )
+                }}%）。
+              </p>
+              <p class="dialog-sub-message">
+                您希望继续上次的进度，还是重新开始？<br />
+                <span class="note">注意：重新开始将删除旧的存档。</span>
+              </p>
+            </div>
+            <div class="dialog-footer">
+              <button class="dialog-btn secondary" @click="handleStartNewSession">
+                <span class="btn-icon">🔄</span>
+                <span>重新开始</span>
+              </button>
+              <button class="dialog-btn primary" @click="handleResumeSession">
+                <span class="btn-icon">➡️</span>
+                <span>继续测评</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
 
     <!-- ========== 确认提交对话框 ========== -->
     <Teleport to="body">
@@ -456,6 +496,10 @@ import {
   type StartResponse,
 } from '../../api/assessment'
 
+// --- [新增] 状态变量 ---
+const showResumeDialog = ref(false) // 控制“检测到存档”弹窗
+const tempSessionData = ref<StartResponse | null>(null) // 暂存后端返回的存档数据
+
 // 定义错误数据的类型
 interface SubmitErrorData {
   total?: number
@@ -552,7 +596,7 @@ const hasCurrentQuestionAnswered = (): boolean => {
   return answers.value[currentQuestion.id] !== undefined
 }
 
-// --- 生命周期 ---
+// --- [修改] onMounted 生命周期 ---
 onMounted(async () => {
   if (!uid) {
     showToast('用户未登录', 'error')
@@ -561,34 +605,84 @@ onMounted(async () => {
   }
 
   try {
+    // 1. 并行请求：获取题目 + 检查状态(action='check')
     const [questionsRes, startRes] = await Promise.all([
       fetchQuestions(),
       startAssessment(uid, 'check'),
     ])
 
+    // 2. 加载题目
     if (questionsRes.code === 200) {
       questions.value = questionsRes.data.questions || []
     }
 
+    // 3. 处理会话状态
     if (startRes.code === 200) {
       const data = startRes.data as StartResponse
-      sessionId.value = data.session_id || 0
-      answers.value = data.answers_snapshot || {}
 
-      if (data.is_resumed && data.current_progress_index !== undefined) {
-        currentIndex.value = Math.min(data.current_progress_index, questions.value.length - 1)
-        showToast('已为您恢复上次的答题进度', 'info')
+      // === [核心修改逻辑] ===
+      if (data.is_resumed) {
+        // A. 如果是存档：先暂存数据，不立即应用，并弹出询问框
+        tempSessionData.value = data
+        showResumeDialog.value = true
+        // 注意：这里暂停，不要调用 startTimer()，等用户选完
+      } else {
+        // B. 如果是新会话：直接开始
+        initSession(data)
       }
     }
-
-    startTimer()
   } catch (error) {
     console.error('初始化测评失败:', error)
     showToast('网络异常，无法加载试卷', 'error')
-  } finally {
     loading.value = false
   }
 })
+
+// --- [新增] 初始化会话的通用方法 ---
+const initSession = (data: StartResponse) => {
+  sessionId.value = data.session_id || 0
+  answers.value = data.answers_snapshot || {}
+
+  if (data.is_resumed && data.current_progress_index !== undefined) {
+    currentIndex.value = Math.min(data.current_progress_index, questions.value.length - 1)
+  } else {
+    currentIndex.value = 0
+  }
+
+  loading.value = false // 关闭加载动画
+  startTimer() // 开始计时
+}
+
+// --- [新增] 用户选择处理函数 ---
+
+// 选择 1: 继续上次进度
+const handleResumeSession = () => {
+  if (tempSessionData.value) {
+    initSession(tempSessionData.value)
+    showToast('已恢复上次进度', 'info')
+  }
+  showResumeDialog.value = false
+}
+
+// 选择 2: 开启新测评
+const handleStartNewSession = async () => {
+  showResumeDialog.value = false
+  loading.value = true // 显示加载转圈
+
+  try {
+    // 调用后端接口，强制 action='new'
+    const res = await startAssessment(uid, 'new')
+    if (res.code === 200) {
+      // 后端已经把旧的删了，返回了全新的session
+      initSession(res.data)
+      showToast('已开启全新测评', 'success')
+    }
+  } catch (e) {
+    console.error(e)
+    showToast('开启新测评失败', 'error')
+    loading.value = false
+  }
+}
 
 onBeforeUnmount(() => {
   if (timer) clearInterval(timer)
@@ -2612,5 +2706,25 @@ const goHome = () => {
     right: 20px;
     bottom: 80px;
   }
+}
+
+/* --- [新增] 存档弹窗样式 --- */
+.dialog-icon-wrapper.info {
+  background: linear-gradient(135deg, rgba(33, 150, 243, 0.1), rgba(30, 136, 229, 0.1));
+  color: #1e88e5;
+}
+
+.dialog-sub-message {
+  font-size: 14px;
+  color: #78909c;
+  margin-top: 10px;
+  line-height: 1.5;
+}
+
+.dialog-sub-message .note {
+  font-size: 12px;
+  color: #ff9800;
+  display: block;
+  margin-top: 5px;
 }
 </style>

@@ -235,26 +235,38 @@ def start_questionnaire():
 
     # 2. 如果是检查模式，且有存档，直接返回存档信息
     if action == 'check' and ongoing_session:
-        # 处理历史数据格式兼容（防止之前存的是list）
-        history = ongoing_session.chat_history
-        if isinstance(history, list):
-            history = {}
+        # 【安全补丁】如果发现这个ongoing会话其实已经有报告了（即实际上已完成），
+        # 应该视为已完成，不返回resumed，而是直接跳到下面去开新的。
+        if ongoing_session.report:
+            ongoing_session.status = 'completed'
+            db.session.commit()
+            ongoing_session = None # 重置变量，让逻辑往下走去创建新的
+        else:
+            # 真正的未完成存档
+            history = ongoing_session.chat_history
+            if isinstance(history, list):
+                history = {}
 
-        return jsonify({
-            "code": 200,
-            "msg": "发现未完成的测评",
-            "data": {
-                "session_id": ongoing_session.id,
-                "status": "ongoing",
-                "is_resumed": True,  # 告诉前端这是存档
-                "current_progress_index": ongoing_session.current_step,
-                "answers_snapshot": history  # 前端拿到这个回显答案
-            }
-        })
+            return jsonify({
+                "code": 200,
+                "msg": "发现未完成的测评",
+                "data": {
+                    "session_id": ongoing_session.id,
+                    "status": "ongoing",
+                    "is_resumed": True,
+                    "current_progress_index": ongoing_session.current_step,
+                    "answers_snapshot": history
+                }
+            })
 
     # 3. 否则（action='new' 或 无存档），创建新会话
-    # 先获取题目总数，用于设置 total_steps
     total_count = Question.query.filter_by(is_enabled=True).count()
+
+    # 【修改逻辑】如果有旧的未完成会话，将其删除
+    if ongoing_session:
+        # 如果用户选择开启新的(action='new')，说明不要旧进度了，直接删除
+        db.session.delete(ongoing_session)
+        # 注意：这里不需要 commit，下面添加新会话时一起 commit 即可
 
     new_session = AssessmentSession(
         user_id=uid,
@@ -262,12 +274,8 @@ def start_questionnaire():
         status='ongoing',
         total_steps=total_count,
         current_step=0,
-        chat_history={}  # 初始化为空字典
+        chat_history={}
     )
-
-    # 如果有旧的ongoing，可以考虑将其关闭（可选逻辑），这里简单处理直接开新的
-    if ongoing_session:
-        ongoing_session.status = 'abandoned'  # 标记废弃
 
     db.session.add(new_session)
     db.session.commit()
@@ -469,8 +477,9 @@ def submit_assessment():
             # 3. 留空字段 (不再生成)
             # detail_content_md=""  # 设为空字符串或 None
         )
-
+        session.status = 'completed'
         db.session.add(report)
+        db.session.add(session)
         db.session.commit()
 
         return jsonify({

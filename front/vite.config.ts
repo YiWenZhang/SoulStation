@@ -15,8 +15,14 @@ export default defineConfig({
 
   server: {
     proxy: {
+      // 1. 接口转发
       '/api': {
-        target: 'http://127.0.0.1:5000', // 指向后端
+        target: 'http://127.0.0.1:5000',
+        changeOrigin: true,
+      },
+      // 2. 静态资源转发
+      '/static': {
+        target: 'http://127.0.0.1:5000',
         changeOrigin: true,
       },
     },

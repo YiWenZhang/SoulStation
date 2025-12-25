@@ -154,7 +154,10 @@ const startConsultation = () => {
   console.log('开始问诊，选中的报告ID:', selectedId.value)
   // 跳转到聊天界面 (确保你有这个路由，后续我们会写)
   // 这里的逻辑是：带着 report_id 去创建一个新的对话 Session
-  router.push(`/consultation/chat?report_id=${selectedId.value}`)
+  router.push({
+    name: 'consultationChat',
+    params: { reportId: 2 },
+  })
 }
 </script>
 

@@ -64,13 +64,12 @@ const router = createRouter({
       meta: { requiresAuth: true, role: 'user' },
     },
     // 👇【新增】AI 聊天界面 (点击“开始问诊”后跳转的页面)
-    // 注意：你需要确保 front/src/views/Consultation/ChatView.vue 文件存在（稍后我们会创建）
-    // {
-    //   path: '/consultation/chat',
-    //   name: 'consultationChat',
-    //   component: () => import('../views/Consultation/ChatView.vue'),
-    //   meta: { requiresAuth: true, role: 'user' },
-    // },
+    {
+      path: '/consultation/chat/:reportId',
+      name: 'consultationChat',
+      component: () => import('../views/Consultation/ConsultationChat.vue'),
+      meta: { requiresAuth: true, role: 'user' },
+    },
 
     // --- 历史记录模块路由 (导航栏入口) ---
     // 👇【新增】历史记录列表

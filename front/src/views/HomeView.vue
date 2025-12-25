@@ -110,25 +110,27 @@
           </div>
           <p class="section-description">选择最适合您的方式进行心理健康评估</p>
         </div>
+
         <div class="entry-card-list">
-          <!-- AI聊天测评 -->
-          <div class="entry-card ai-card" @click="gotoAssessment('ai_chat')">
+          <div class="entry-card ai-card" @click="gotoConsultation">
             <div class="card-decoration">
               <div class="wave wave-1"></div>
               <div class="wave wave-2"></div>
             </div>
             <div class="card-content">
               <div class="card-icon-wrapper">
-                <div class="card-icon">🤖</div>
+                <div class="card-icon">🩺</div>
               </div>
-              <h3 class="card-title">AI 对话测评</h3>
-              <p class="card-desc">通过自然对话的形式，AI助手将引导您完成心理状态评估</p>
+              <h3 class="card-title">AI 深度问诊</h3>
+              <p class="card-desc">
+                基于您的历史问卷测评结果，进行专业的AI深度心理咨询。支持针对同一份报告进行多次追踪问诊，获取更深层的建议。
+              </p>
               <div class="card-features">
-                <span class="feature-tag">💬 智能对话</span>
-                <span class="feature-tag">🧠 深度分析</span>
+                <span class="feature-tag">🩺 深度解读</span>
+                <span class="feature-tag">🔄 多次问诊</span>
               </div>
               <button class="card-action-btn">
-                开始对话
+                选择报告问诊
                 <span class="action-arrow">→</span>
               </button>
             </div>
@@ -137,7 +139,6 @@
             </div>
           </div>
 
-          <!-- 量表测评 -->
           <div class="entry-card scale-card" @click="gotoAssessment('scale')">
             <div class="card-decoration">
               <div class="dot-grid"></div>
@@ -249,7 +250,8 @@
 import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
-import { getHomeIndex, HomeResponse } from '../api/home'
+import { getHomeIndex } from '../api/home'
+import type { HomeResponse } from '../api/home'
 
 // 初始化路由和Pinia
 const router = useRouter()
@@ -307,6 +309,13 @@ const handleLogout = () => {
   router.push('/login')
 }
 
+// 新增跳转到问诊选择页的方法
+const gotoConsultation = () => {
+  console.log('正在跳转到问诊选择页')
+  // 这里跳转到我们刚刚新建的 ConsultationSelect 页面
+  router.push('/consultation/select')
+}
+
 const gotoAssessment = (mode: string) => {
   // 打印日志方便调试
   console.log('正在跳转到测评页, 模式:', mode)
@@ -350,7 +359,7 @@ const gotoSettings = () => {
   showUserMenu.value = false
 }
 
-const viewRecordDetail = (id: string) => {
+const viewRecordDetail = (id: number) => {
   router.push(`/record/${id}`)
 }
 

@@ -62,3 +62,40 @@ export const submitAssessment = async (sessionId: number) => {
   })
   return res.data
 }
+// 在 assessment.ts 中添加以下接口和方法
+export interface ReportDetailResponse {
+  base_info: {
+    report_no: string
+    date: string
+    user_name: string
+    mode_name: string
+  }
+  core_result: {
+    risk_level: 'good' | 'moderate' | 'severe'
+    risk_color: string
+    summary_label: string
+    score_interpretation: string
+  }
+  charts: {
+    radar_data: Array<{
+      name: string
+      value: number
+      fullMark: number
+    }>
+  }
+  content: {
+    advice_md: string
+  }
+  actions: {
+    can_chat: boolean
+    can_download: boolean
+  }
+}
+
+// 获取测评报告详情
+export const getReportDetail = async (reportId: string, uid: number) => {
+  const res = await axios.get('/api/assessment/report/detail', {
+    params: { report_id: reportId, uid },
+  })
+  return res.data
+}

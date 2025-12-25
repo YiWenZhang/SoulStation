@@ -5,7 +5,7 @@ import Login from '../views/Auth/Login.vue'
 import Register from '../views/Auth/Register.vue'
 import Test from '../views/Test.vue' //原有的App.vue
 import Questionnaire from '../views/Assessment/QuestionnaireView.vue'
-
+import ReportView from '../views/Assessment/ReportView.vue'
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
@@ -50,7 +50,7 @@ const router = createRouter({
     {
       path: '/report/:id',
       name: 'report',
-      component: { template: '<h1>测评报告页面 (Report ID: {{ $route.params.id }})</h1>' },
+      component: ReportView,
       meta: { requiresAuth: true, role: 'user' },
     },
     { path: '/test', name: 'test', component: Test },

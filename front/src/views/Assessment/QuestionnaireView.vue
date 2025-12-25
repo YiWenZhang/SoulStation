@@ -1,3 +1,4 @@
+<!-- views/Assessment/QuestionnaireView.vue -->
 <template>
   <div class="assessment-container">
     <!-- 背景装饰元素 -->
@@ -189,7 +190,7 @@
             <button
               v-else
               class="nav-btn submit-btn"
-              :class="{ disabled: !hasCurrentQuestionAnswered() || submitting }"
+              :class="{ disabled: submitting }"
               @click="handleSubmit"
               @mouseenter="submitBtnHover = true"
               @mouseleave="submitBtnHover = false"
@@ -335,6 +336,111 @@
         <button class="no-questions-btn" @click="goHome">返回首页</button>
       </div>
     </div>
+
+    <!-- ========== 确认提交对话框 ========== -->
+    <Teleport to="body">
+      <Transition name="dialog-fade">
+        <div v-if="showConfirmDialog" class="dialog-overlay" @click.self="cancelSubmit">
+          <div class="dialog-container confirm-dialog">
+            <div class="dialog-header">
+              <div class="dialog-icon-wrapper confirm">
+                <span class="dialog-icon">📋</span>
+              </div>
+              <h3 class="dialog-title">确认提交</h3>
+            </div>
+            <div class="dialog-body">
+              <p class="dialog-message">是否确认提交本次测评？</p>
+              <div v-if="unansweredInfo.count > 0" class="warning-info">
+                <span class="warning-icon">⚠️</span>
+                <span class="warning-text">还有 {{ unansweredInfo.count }} 道题目未完成</span>
+              </div>
+            </div>
+            <div class="dialog-footer">
+              <button class="dialog-btn cancel" @click="cancelSubmit">
+                <span class="btn-icon">👀</span>
+                <span>我再看看</span>
+              </button>
+              <button class="dialog-btn confirm" @click="confirmSubmit" :disabled="submitting">
+                <span v-if="submitting" class="loading-spinner"></span>
+                <span class="btn-icon" v-else>✅</span>
+                <span>{{ submitting ? '提交中...' : '确定' }}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- ========== 提交成功对话框 ========== -->
+    <Teleport to="body">
+      <Transition name="dialog-fade">
+        <div v-if="showSuccessDialog" class="dialog-overlay">
+          <div class="dialog-container success-dialog">
+            <div class="dialog-header">
+              <div class="dialog-icon-wrapper success">
+                <span class="dialog-icon">🎉</span>
+              </div>
+              <h3 class="dialog-title">提交成功</h3>
+            </div>
+            <div class="dialog-body">
+              <p class="dialog-message">您的测评已成功提交！</p>
+              <div class="risk-level-badge" :class="submitResult.risk_level">
+                <span class="risk-icon">{{ getRiskIcon(submitResult.risk_level) }}</span>
+                <span class="risk-text">{{ getRiskLevelText(submitResult.risk_level) }}</span>
+              </div>
+            </div>
+            <div class="dialog-footer">
+              <button class="dialog-btn primary" @click="viewReport">
+                <span class="btn-icon">📊</span>
+                <span>查看报告</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- ========== 错误提示对话框 ========== -->
+    <Teleport to="body">
+      <Transition name="dialog-fade">
+        <div v-if="showErrorDialog" class="dialog-overlay" @click.self="closeErrorDialog">
+          <div class="dialog-container error-dialog">
+            <div class="dialog-header">
+              <div class="dialog-icon-wrapper error">
+                <span class="dialog-icon">❌</span>
+              </div>
+              <h3 class="dialog-title">提交失败</h3>
+            </div>
+            <div class="dialog-body">
+              <p class="dialog-message">{{ errorMessage }}</p>
+              <div v-if="errorDetails" class="error-details">
+                <span class="details-text">{{ errorDetails }}</span>
+              </div>
+            </div>
+            <div class="dialog-footer">
+              <button class="dialog-btn secondary" @click="closeErrorDialog">
+                <span class="btn-icon">🔙</span>
+                <span>返回修改</span>
+              </button>
+              <button v-if="canRetry" class="dialog-btn primary" @click="retrySubmit">
+                <span class="btn-icon">🔄</span>
+                <span>重新提交</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- ========== Toast 提示 ========== -->
+    <Teleport to="body">
+      <Transition name="toast-slide">
+        <div v-if="toastVisible" class="toast-container" :class="toastType">
+          <span class="toast-icon">{{ toastIcon }}</span>
+          <span class="toast-message">{{ toastMessage }}</span>
+        </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>
 
@@ -348,8 +454,16 @@ import {
   submitAssessment,
   type Question,
   type StartResponse,
-  type SubmitResponse,
 } from '../../api/assessment'
+
+// 定义错误数据的类型
+interface SubmitErrorData {
+  total?: number
+  answered?: number
+  risk_level?: string
+  msg?: string // 添加这一行
+  [key: string]: unknown // 允许其他属性
+}
 
 const router = useRouter()
 const uid = parseInt(localStorage.getItem('uid') || '0')
@@ -373,6 +487,25 @@ const submitBtnHover = ref(false)
 const flaggedQuestions = ref<number[]>([])
 const saveTimeout = ref<ReturnType<typeof setTimeout> | null>(null)
 
+// ========== 对话框相关状态 ==========
+const showConfirmDialog = ref(false)
+const showSuccessDialog = ref(false)
+const showErrorDialog = ref(false)
+const errorMessage = ref('')
+const errorDetails = ref('')
+const canRetry = ref(false)
+const submitResult = ref<{ report_id: number; risk_level: string }>({
+  report_id: 0,
+  risk_level: '',
+})
+
+// Toast 相关
+const toastVisible = ref(false)
+const toastMessage = ref('')
+const toastType = ref<'success' | 'error' | 'warning' | 'info'>('info')
+const toastIcon = ref('💡')
+let toastTimer: ReturnType<typeof setTimeout> | null = null
+
 // --- 计算属性 ---
 const answeredCount = computed(() => Object.keys(answers.value).length)
 const progressPercentage = computed(
@@ -382,6 +515,15 @@ const formattedTime = computed(() => {
   const minutes = Math.floor(elapsedTime.value / 60)
   const seconds = elapsedTime.value % 60
   return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
+})
+
+// 未答题信息
+const unansweredInfo = computed(() => {
+  const unansweredQuestions = questions.value.filter((q) => answers.value[q.id] === undefined)
+  return {
+    count: unansweredQuestions.length,
+    questions: unansweredQuestions,
+  }
 })
 
 // 分页相关
@@ -413,41 +555,36 @@ const hasCurrentQuestionAnswered = (): boolean => {
 // --- 生命周期 ---
 onMounted(async () => {
   if (!uid) {
-    alert('用户未登录')
+    showToast('用户未登录', 'error')
     router.push('/login')
     return
   }
 
   try {
-    // 1. 并行请求：获取题目 + 初始化会话
     const [questionsRes, startRes] = await Promise.all([
       fetchQuestions(),
-      startAssessment(uid, 'check'), // 默认检查存档
+      startAssessment(uid, 'check'),
     ])
 
-    // 处理题目响应
     if (questionsRes.code === 200) {
       questions.value = questionsRes.data.questions || []
     }
 
-    // 处理开始测评响应
     if (startRes.code === 200) {
       const data = startRes.data as StartResponse
       sessionId.value = data.session_id || 0
-      answers.value = data.answers_snapshot || {} // 恢复答案
+      answers.value = data.answers_snapshot || {}
 
-      // 如果是恢复存档，跳到上次的位置；如果是新的，从0开始
       if (data.is_resumed && data.current_progress_index !== undefined) {
         currentIndex.value = Math.min(data.current_progress_index, questions.value.length - 1)
-        // 可以加个 Toast 提示用户: "已为您恢复上次的答题进度"
+        showToast('已为您恢复上次的答题进度', 'info')
       }
     }
 
-    // 3. 启动计时器
     startTimer()
   } catch (error) {
     console.error('初始化测评失败:', error)
-    alert('网络异常，无法加载试卷')
+    showToast('网络异常，无法加载试卷', 'error')
   } finally {
     loading.value = false
   }
@@ -456,6 +593,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   if (timer) clearInterval(timer)
   if (saveTimeout.value) clearTimeout(saveTimeout.value)
+  if (toastTimer) clearTimeout(toastTimer)
 })
 
 // --- 计时器 ---
@@ -467,18 +605,15 @@ const startTimer = () => {
 
 // --- 交互逻辑 ---
 const handleSelectOption = async (questionId: number, score: number, optionId: number) => {
-  if (questionId === 0) return // 无效的questionId
+  if (questionId === 0) return
 
-  // 1. 更新本地状态
   answers.value[questionId] = score
 
-  // 2. 触发脉冲效果
   pulseOptionId.value = optionId
   setTimeout(() => {
     pulseOptionId.value = null
   }, 500)
 
-  // 3. 自动保存
   debouncedSave()
 }
 
@@ -486,7 +621,6 @@ const changeQuestion = (step: number) => {
   const nextIndex = currentIndex.value + step
   if (nextIndex >= 0 && nextIndex < questions.value.length) {
     currentIndex.value = nextIndex
-    // 自动保存
     debouncedSave()
   }
 }
@@ -533,7 +667,7 @@ const toggleFlagQuestion = (index: number) => {
   const idx = flaggedQuestions.value.indexOf(index)
   if (idx === -1) {
     flaggedQuestions.value.push(index)
-    showToast('题目已标记')
+    showToast('题目已标记', 'info')
   } else {
     flaggedQuestions.value.splice(idx, 1)
   }
@@ -544,9 +678,9 @@ const scrollToUnanswered = () => {
   const firstUnanswered = questions.value.findIndex((q: Question) => !answers.value[q.id])
   if (firstUnanswered !== -1) {
     currentIndex.value = firstUnanswered
-    showToast(`已跳转到第 ${firstUnanswered + 1} 题`)
+    showToast(`已跳转到第 ${firstUnanswered + 1} 题`, 'info')
   } else {
-    showToast('所有题目已完成')
+    showToast('所有题目已完成', 'success')
   }
 }
 
@@ -556,7 +690,7 @@ const clearAllAnswers = () => {
     answers.value = {}
     flaggedQuestions.value = []
     currentIndex.value = 0
-    showToast('已清空所有答案')
+    showToast('已清空所有答案', 'info')
   }
 }
 
@@ -567,58 +701,153 @@ const getScoreClass = (score: number) => {
   return 'score-high'
 }
 
-// 提交试卷
-const handleSubmit = async () => {
-  // 完整性校验
-  const unansweredCount = questions.value.length - answeredCount.value
-  if (unansweredCount > 0) {
-    const confirmSubmit = window.confirm(`还有 ${unansweredCount} 道题未完成，是否确认提交？`)
-    if (!confirmSubmit) return
-  }
+// ========== 提交相关方法 ==========
 
+// 点击提交按钮 - 显示确认对话框
+const handleSubmit = () => {
+  showConfirmDialog.value = true
+}
+
+// 取消提交
+const cancelSubmit = () => {
+  showConfirmDialog.value = false
+}
+
+// 确认提交
+const confirmSubmit = async () => {
   submitting.value = true
+
   try {
     const response = await submitAssessment(sessionId.value)
 
     if (response.code === 200) {
-      const data = response.data as SubmitResponse
-      if (data.report_id) {
-        showToast('提交成功！正在生成报告...')
-
-        // 跳转到报告页面
-        setTimeout(() => {
-          router.push(`/report/${data.report_id}`)
-        }, 1500)
+      // 提交成功
+      showConfirmDialog.value = false
+      submitResult.value = {
+        report_id: response.data.report_id,
+        risk_level: response.data.risk_level || 'good',
       }
-    } else if (response.code === 400) {
-      // 题目未答完的错误
-      const data = response.data as SubmitResponse
-      const total = data.total || 0
-      const answered = data.answered || 0
-      const unanswered = total - answered
-      showToast(`还有 ${unanswered} 道题目未完成，请继续作答`)
-
-      // 滚动到第一个未答题目
-      const firstUnanswered = questions.value.find((q) => !answers.value[q.id])
-      if (firstUnanswered) {
-        const index = questions.value.findIndex((q) => q.id === firstUnanswered.id)
-        currentIndex.value = index
-      }
+      showSuccessDialog.value = true
     } else {
-      showToast('提交失败: ' + (response.msg || '未知错误'))
+      // 根据不同错误码处理
+      handleSubmitError(response.code, response.msg, response.data as SubmitErrorData)
     }
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('提交失败:', error)
-    showToast('提交过程中发生错误')
+    showConfirmDialog.value = false
+
+    // 处理网络错误或其他异常
+    if (error && typeof error === 'object' && 'response' in error) {
+      const err = error as { response?: { status?: number; data?: SubmitErrorData } }
+      const status = err.response?.status || 500
+      const data: SubmitErrorData = err.response?.data || {} // 明确类型
+      handleSubmitError(status, data.msg || '服务器错误', data) // 移除 ?
+    } else {
+      showErrorMessage('网络连接失败', '请检查您的网络连接后重试', true)
+    }
   } finally {
     submitting.value = false
   }
 }
 
-// 显示提示
-const showToast = (message: string) => {
-  // 这里可以集成一个Toast组件，暂时用alert代替
-  alert(message)
+// 处理提交错误
+const handleSubmitError = (code: number, msg: string, data?: SubmitErrorData) => {
+  showConfirmDialog.value = false
+
+  switch (code) {
+    case 400:
+      if (msg.includes('未完成') || msg.includes('没有答题')) {
+        // 题目未答完
+        const total = data?.total || questions.value.length
+        const answered = data?.answered || answeredCount.value
+        const unanswered = total - answered
+        showErrorMessage(`还有 ${unanswered} 道题目未完成`, '请继续完成所有题目后再提交', false)
+
+        // 跳转到第一个未答题目
+        const firstUnanswered = questions.value.findIndex((q) => answers.value[q.id] === undefined)
+        if (firstUnanswered !== -1) {
+          setTimeout(() => {
+            currentIndex.value = firstUnanswered
+          }, 500)
+        }
+      } else {
+        showErrorMessage(msg, '请检查后重试', false)
+      }
+      break
+
+    case 404:
+      showErrorMessage('会话不存在或已过期', '请刷新页面重新开始测评', false)
+      break
+
+    case 500:
+      showErrorMessage('服务器内部错误', '请稍后重试，如问题持续请联系管理员', true)
+      break
+
+    default:
+      showErrorMessage(msg || '提交失败', '请稍后重试', true)
+  }
+}
+
+// 显示错误信息
+const showErrorMessage = (message: string, details: string, retry: boolean) => {
+  errorMessage.value = message
+  errorDetails.value = details
+  canRetry.value = retry
+  showErrorDialog.value = true
+}
+
+// 关闭错误对话框
+const closeErrorDialog = () => {
+  showErrorDialog.value = false
+  errorMessage.value = ''
+  errorDetails.value = ''
+}
+
+// 重试提交
+const retrySubmit = () => {
+  closeErrorDialog()
+  handleSubmit()
+}
+
+// 查看报告
+const viewReport = () => {
+  showSuccessDialog.value = false
+  router.push(`/report/${submitResult.value.report_id}`)
+}
+
+// 获取风险等级文本
+const getRiskLevelText = (level: string) => {
+  const levelMap: Record<string, string> = {
+    good: '心理状态良好',
+    moderate: '存在一定风险倾向',
+    severe: '需要重点关注',
+  }
+  return levelMap[level] || '评估完成'
+}
+
+// 获取风险等级图标
+const getRiskIcon = (level: string) => {
+  const iconMap: Record<string, string> = {
+    good: '😊',
+    moderate: '😐',
+    severe: '😟',
+  }
+  return iconMap[level] || '📊'
+}
+
+// ========== Toast 相关方法 ==========
+const showToast = (message: string, type: 'success' | 'error' | 'warning' | 'info' = 'info') => {
+  if (toastTimer) clearTimeout(toastTimer)
+
+  toastMessage.value = message
+  toastType.value = type
+  toastIcon.value =
+    type === 'success' ? '✅' : type === 'error' ? '❌' : type === 'warning' ? '⚠️' : '💡'
+  toastVisible.value = true
+
+  toastTimer = setTimeout(() => {
+    toastVisible.value = false
+  }, 3000)
 }
 
 // 返回首页
@@ -644,12 +873,11 @@ const goHome = () => {
   min-height: 100vh;
   background: linear-gradient(135deg, #f8f9ff 0%, #f0f7ff 100%);
   position: relative;
-  /* 移除 overflow 属性 */
 }
 
 /* 背景装饰 */
 .background-decoration {
-  position: fixed; /* 保持 fixed */
+  position: fixed;
   width: 100%;
   height: 100%;
   pointer-events: none;
@@ -721,7 +949,7 @@ const goHome = () => {
 .top-progress-bar {
   height: 4px;
   background: rgba(0, 137, 123, 0.1);
-  position: fixed; /* 改为 fixed，始终在顶部 */
+  position: fixed;
   top: 0;
   left: 0;
   right: 0;
@@ -778,14 +1006,13 @@ const goHome = () => {
 }
 
 /* 页面头部 */
-/* 确保页面头部固定 */
 .page-header {
   background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(10px);
   border-bottom: 1px solid rgba(0, 137, 123, 0.1);
   padding: 15px 30px;
-  position: fixed; /* 改为 fixed */
-  top: 4px; /* 在进度条下方 */
+  position: fixed;
+  top: 4px;
   left: 0;
   right: 0;
   z-index: 999;
@@ -927,11 +1154,10 @@ const goHome = () => {
 }
 
 /* 主内容区域 */
-/* 调整主内容区域的位置，避免被固定头部遮挡 */
 .main-content {
   max-width: 1400px;
   margin: 0 auto;
-  padding: 100px 20px 120px; /* 顶部留出头部空间，底部留出快捷导航空间 */
+  padding: 100px 20px 120px;
   display: flex;
   gap: 25px;
   position: relative;
@@ -955,7 +1181,7 @@ const goHome = () => {
 
 .question-card {
   padding: 20px;
-  min-height: auto; /* 移除最小高度限制 */
+  min-height: auto;
   display: flex;
   flex-direction: column;
 }
@@ -1164,7 +1390,6 @@ const goHome = () => {
   gap: 15px;
 }
 
-/* 选项圆圈 */
 .circle-inner {
   width: 18px;
   height: 18px;
@@ -1231,7 +1456,6 @@ const goHome = () => {
   animation: fadeIn 0.3s ease-out;
 }
 
-/* 选中指示器 */
 .selected-indicator {
   width: 20px;
   height: 20px;
@@ -1298,7 +1522,7 @@ const goHome = () => {
   }
 }
 
-/* 导航按钮 - 缩小尺寸 */
+/* 导航按钮 */
 .navigation-btns {
   display: flex;
   justify-content: space-between;
@@ -1413,7 +1637,6 @@ const goHome = () => {
   gap: 8px;
 }
 
-/* 分页按钮 */
 .page-btn {
   width: 30px;
   height: 30px;
@@ -1451,8 +1674,7 @@ const goHome = () => {
   border-radius: 50%;
 }
 
-/* 确保侧边栏不会限制滚动 */
-/* ===== 侧边栏调整 ===== */
+/* 侧边栏 */
 .sidebar {
   width: 280px;
   flex-shrink: 0;
@@ -1460,6 +1682,7 @@ const goHome = () => {
   flex-direction: column;
   gap: 15px;
 }
+
 /* 统计卡片 */
 .stats-card {
   padding: 15px;
@@ -1582,6 +1805,15 @@ const goHome = () => {
 
 .sheet-icon {
   font-size: 18px;
+}
+
+.sheet-title {
+  color: #263238;
+  font-size: 14px;
+  margin: 0;
+  font-weight: 700;
+  flex: 1;
+  margin-left: 8px;
 }
 
 .sheet-tools {
@@ -1870,7 +2102,7 @@ const goHome = () => {
 /* 时间提示 */
 .time-hint {
   position: fixed;
-  bottom: 30px; /* 调整位置，避免与快捷导航重叠 */
+  bottom: 30px;
   right: 30px;
   background: rgba(255, 193, 7, 0.95);
   backdrop-filter: blur(10px);
@@ -1907,6 +2139,378 @@ const goHome = () => {
   color: #8a6d3b;
   font-size: 13px;
   font-weight: 600;
+}
+
+/* 无题目提示 */
+.no-questions {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(135deg, #f8f9ff 0%, #f0f7ff 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.no-questions-content {
+  text-align: center;
+  padding: 40px;
+}
+
+.no-questions-icon {
+  font-size: 64px;
+  margin-bottom: 20px;
+}
+
+.no-questions-title {
+  color: #263238;
+  font-size: 24px;
+  margin: 0 0 10px 0;
+}
+
+.no-questions-subtitle {
+  color: #90a4ae;
+  margin: 0 0 30px 0;
+}
+
+.no-questions-btn {
+  padding: 12px 30px;
+  background: linear-gradient(135deg, #00897b, #00acc1);
+  color: white;
+  border: none;
+  border-radius: 25px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.no-questions-btn:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 10px 25px rgba(0, 137, 123, 0.3);
+}
+
+/* ========== 对话框样式 ========== */
+.dialog-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+}
+
+.dialog-container {
+  background: white;
+  border-radius: 24px;
+  padding: 30px;
+  width: 90%;
+  max-width: 420px;
+  box-shadow: 0 25px 50px rgba(0, 0, 0, 0.25);
+  animation: dialogSlideIn 0.3s ease-out;
+}
+
+@keyframes dialogSlideIn {
+  from {
+    opacity: 0;
+    transform: scale(0.9) translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.dialog-header {
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+.dialog-icon-wrapper {
+  width: 70px;
+  height: 70px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 15px;
+  font-size: 32px;
+}
+
+.dialog-icon-wrapper.confirm {
+  background: linear-gradient(135deg, rgba(0, 137, 123, 0.1), rgba(0, 172, 193, 0.1));
+}
+
+.dialog-icon-wrapper.success {
+  background: linear-gradient(135deg, rgba(76, 175, 80, 0.1), rgba(129, 199, 132, 0.1));
+  animation: successPulse 2s infinite;
+}
+
+@keyframes successPulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+}
+
+.dialog-icon-wrapper.error {
+  background: linear-gradient(135deg, rgba(244, 67, 54, 0.1), rgba(239, 83, 80, 0.1));
+}
+
+.dialog-title {
+  color: #263238;
+  font-size: 22px;
+  margin: 0;
+  font-weight: 700;
+}
+
+.dialog-body {
+  text-align: center;
+  margin-bottom: 25px;
+}
+
+.dialog-message {
+  color: #546e7a;
+  font-size: 16px;
+  margin: 0 0 15px 0;
+  line-height: 1.5;
+}
+
+.warning-info {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 152, 0, 0.1);
+  padding: 10px 20px;
+  border-radius: 25px;
+  border: 1px solid rgba(255, 152, 0, 0.2);
+}
+
+.warning-icon {
+  font-size: 18px;
+}
+
+.warning-text {
+  color: #e65100;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.risk-level-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 15px 25px;
+  border-radius: 30px;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.risk-level-badge.good {
+  background: linear-gradient(135deg, rgba(76, 175, 80, 0.1), rgba(129, 199, 132, 0.1));
+  color: #2e7d32;
+  border: 2px solid rgba(76, 175, 80, 0.3);
+}
+
+.risk-level-badge.moderate {
+  background: linear-gradient(135deg, rgba(255, 193, 7, 0.1), rgba(255, 213, 79, 0.1));
+  color: #f57c00;
+  border: 2px solid rgba(255, 193, 7, 0.3);
+}
+
+.risk-level-badge.severe {
+  background: linear-gradient(135deg, rgba(244, 67, 54, 0.1), rgba(239, 83, 80, 0.1));
+  color: #c62828;
+  border: 2px solid rgba(244, 67, 54, 0.3);
+}
+
+.risk-icon {
+  font-size: 24px;
+}
+
+.error-details {
+  margin-top: 10px;
+  padding: 12px 20px;
+  background: rgba(244, 67, 54, 0.05);
+  border-radius: 12px;
+  border: 1px solid rgba(244, 67, 54, 0.1);
+}
+
+.details-text {
+  color: #90a4ae;
+  font-size: 14px;
+}
+
+.dialog-footer {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+}
+
+.dialog-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 28px;
+  border: none;
+  border-radius: 25px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  min-width: 130px;
+}
+
+.dialog-btn .btn-icon {
+  font-size: 16px;
+}
+
+.dialog-btn.cancel {
+  background: #f5f5f5;
+  color: #546e7a;
+}
+
+.dialog-btn.cancel:hover {
+  background: #e0e0e0;
+  transform: translateY(-2px);
+}
+
+.dialog-btn.confirm {
+  background: linear-gradient(135deg, #00897b, #00acc1);
+  color: white;
+}
+
+.dialog-btn.confirm:hover:not(:disabled) {
+  background: linear-gradient(135deg, #00796b, #0097a7);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(0, 137, 123, 0.3);
+}
+
+.dialog-btn.confirm:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.dialog-btn.primary {
+  background: linear-gradient(135deg, #00897b, #00acc1);
+  color: white;
+  flex: 1;
+}
+
+.dialog-btn.primary:hover {
+  background: linear-gradient(135deg, #00796b, #0097a7);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(0, 137, 123, 0.3);
+}
+
+.dialog-btn.secondary {
+  background: #f5f5f5;
+  color: #546e7a;
+}
+
+.dialog-btn.secondary:hover {
+  background: #e0e0e0;
+  transform: translateY(-2px);
+}
+
+.loading-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Dialog 过渡动画 */
+.dialog-fade-enter-active,
+.dialog-fade-leave-active {
+  transition: all 0.3s ease;
+}
+
+.dialog-fade-enter-from,
+.dialog-fade-leave-to {
+  opacity: 0;
+}
+
+.dialog-fade-enter-from .dialog-container,
+.dialog-fade-leave-to .dialog-container {
+  transform: scale(0.9) translateY(20px);
+}
+
+/* ========== Toast 样式 ========== */
+.toast-container {
+  position: fixed;
+  top: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 14px 28px;
+  border-radius: 30px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  z-index: 3000;
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+}
+
+.toast-container.success {
+  background: linear-gradient(135deg, #4caf50, #66bb6a);
+  color: white;
+}
+
+.toast-container.error {
+  background: linear-gradient(135deg, #f44336, #ef5350);
+  color: white;
+}
+
+.toast-container.warning {
+  background: linear-gradient(135deg, #ff9800, #ffb74d);
+  color: white;
+}
+
+.toast-container.info {
+  background: linear-gradient(135deg, #2196f3, #42a5f5);
+  color: white;
+}
+
+.toast-icon {
+  font-size: 18px;
+}
+
+/* Toast 过渡动画 */
+.toast-slide-enter-active,
+.toast-slide-leave-active {
+  transition: all 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+}
+
+.toast-slide-enter-from {
+  opacity: 0;
+  transform: translateX(-50%) translateY(-30px);
+}
+
+.toast-slide-leave-to {
+  opacity: 0;
+  transform: translateX(-50%) translateY(-30px);
 }
 
 /* 响应式设计 */
@@ -1963,13 +2567,17 @@ const goHome = () => {
     grid-template-columns: repeat(8, 1fr);
   }
 
-  .quick-nav {
-    bottom: 10px;
+  .dialog-container {
+    width: 95%;
+    padding: 25px;
   }
 
-  .nav-buttons {
-    flex-wrap: wrap;
-    justify-content: center;
+  .dialog-footer {
+    flex-direction: column;
+  }
+
+  .dialog-btn {
+    width: 100%;
   }
 }
 

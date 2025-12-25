@@ -69,7 +69,7 @@ class AssessmentReport(db.Model):
 
     # 报告核心展示
     summary_short = db.Column(db.String(255), comment='综合心理状态标签')
-    detail_content_md = db.Column(MEDIUMTEXT, comment='Markdown详情')
+    # detail_content_md = db.Column(MEDIUMTEXT, comment='Markdown详情')
     radar_data = db.Column(db.JSON)
 
     # 数据管理页所需的筛选字段
@@ -82,6 +82,14 @@ class AssessmentReport(db.Model):
     # === 新增：只存核心数值，不存冗余文案 ===
     total_score = db.Column(db.Float, default=0.0, comment='总分')
     total_avg = db.Column(db.Float, default=0.0, comment='总均分')
+
+    # === 【修改】新增字段 ===
+    # 标记是否进行了 AI 问诊。
+    # 也可以用 Integer (0:未开始, 1:进行中, 2:已完成) 来表达更丰富的状态，
+    # 但如果你只需要"是否"，Boolean 也可以。这里推荐用 String 或 Integer 方便扩展。
+    consultation_status = db.Column(db.String(20), default='none', comment='问诊状态: none, ongoing, completed')
+    # 建立与新表的关联关系 (方便通过 report.consultation 直接拿到问诊数据)
+    consultation = db.relationship('AIConsultation', backref='report', uselist=False)
 
     generated_at = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -256,3 +264,33 @@ class AssessmentRule(db.Model):
     __table_args__ = (
         db.UniqueConstraint('dimension_name', 'level', name='uq_dimension_level'),
     )
+
+
+# ==========================================
+# 【新增】AI 问诊记录表
+# 专门存储基于某份报告进行的 AI 心理医生对话及结论
+# ==========================================
+class AIConsultation(db.Model):
+    __tablename__ = 'ai_consultations'
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    # 1. 核心关联：指向哪份报告
+    # 问诊必须基于某份已完成的报告
+    report_id = db.Column(db.Integer, db.ForeignKey('assessment_reports.id'), unique=True, nullable=False)
+
+    # 2. 问诊过程数据
+    # 存储对话历史：[{"role": "ai", "content": "..."}, {"role": "user", "content": "..."}]
+    chat_history = db.Column(JSON, default=list, comment='完整的问诊对话记录')
+
+    # 3. 问诊结果数据 (P1 需求)
+    # 问诊结束后生成的结构化总结/建议
+    diagnosis_summary = db.Column(MEDIUMTEXT, comment='AI生成的诊断总结与建议(Markdown)')
+
+    # 4. 辅助字段
+    current_step = db.Column(db.Integer, default=0, comment='问诊进行到的轮数')
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # 还可以加一个 user_id 冗余字段方便查询，或者直接通过 report.session.user 查
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)

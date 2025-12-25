@@ -16,6 +16,12 @@ class Config:
     # 在生产环境中，建议将此密钥放入 .env 文件中
     ADMIN_SECRET_KEY = os.environ.get('ADMIN_SECRET_KEY') or 'SoulStation2025_Admin'
 
+    # === 新增：AI 大模型配置 ===
+    # 从环境变量读取，如果没有则使用默认值
+    AI_API_KEY = os.getenv('AI_API_KEY')
+    AI_BASE_URL = os.getenv('AI_BASE_URL', 'https://api.deepseek.com')
+    AI_MODEL_NAME = os.getenv('AI_MODEL_NAME', 'deepseek-chat')
+
 
 class DevelopmentConfig(Config):
     DEBUG = True

@@ -467,7 +467,7 @@ def submit_assessment():
             summary_short=summary_short,  # String: 列表页显示的短句
 
             # 3. 留空字段 (不再生成)
-            detail_content_md=""  # 设为空字符串或 None
+            # detail_content_md=""  # 设为空字符串或 None
         )
 
         db.session.add(report)

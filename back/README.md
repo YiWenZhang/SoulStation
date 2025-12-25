@@ -25,3 +25,8 @@ flask --app run init-data
 
 flask init-data
 ```
+
+## 4.测试专用数据库
+```
+CREATE DATABASE soulstation_test CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+```

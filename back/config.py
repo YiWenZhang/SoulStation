@@ -22,6 +22,14 @@ class DevelopmentConfig(Config):
     SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL') or \
                               'mysql+pymysql://root:123456@localhost:3306/soulstation_db'
 
+# ========================================================
+# 【新增】测试专用配置
+# ========================================================
+class TestingConfig(Config):
+    TESTING = True
+    DEBUG = True
+    # 测试环境：连 soulstation_test (请确认密码 123456 是否正确)
+    SQLALCHEMY_DATABASE_URI = 'mysql+pymysql://root:123456@localhost:3306/soulstation_test'
 
 class ProductionConfig(Config):
     DEBUG = False
@@ -32,5 +40,6 @@ class ProductionConfig(Config):
 config_map = {
     'development': DevelopmentConfig,
     'production': ProductionConfig,
-    'default': DevelopmentConfig
+    'default': DevelopmentConfig,
+    'testing': TestingConfig  # <--- 注册 testing 配置
 }

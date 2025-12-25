@@ -7,6 +7,7 @@ import json
 from ..models import User, AssessmentSession, AssessmentReport, Question, QuestionOption, QuestionCategory
 from sqlalchemy import desc, null
 from sqlalchemy.orm.attributes import flag_modified # 用于强制更新JSON字段
+from ..utils.common import generate_report_markdown
 
 api_bp = Blueprint('api', __name__, url_prefix='/api')
 
@@ -452,12 +453,17 @@ def submit_assessment():
     if risk_level != 'good':
         summary_short = f"在 {', '.join(high_risk_dims[:3])} 等方面存在一定心理压力"
 
+    # ========================================================
+    # 【核心修改】：调用 common 生成 Markdown
+    # ========================================================
+    detail_content_md = generate_report_markdown(radar_data, risk_level, high_risk_dims)
+
     # 5. 保存报告
     try:
         report = AssessmentReport(
             session_id=session.id,
             summary_short=summary_short,
-            detail_content_md=f"### 测评结果分析\n\n您的风险维度包括：{', '.join(high_risk_dims) if high_risk_dims else '无'}。\n\n建议结合具体雷达图查看详情。",
+            detail_content_md=detail_content_md,
             radar_data=radar_data,
             risk_level=risk_level,
             high_risk_dimensions=high_risk_dims
@@ -482,3 +488,72 @@ def submit_assessment():
     except Exception as e:
         db.session.rollback()
         return jsonify({"code": 500, "msg": f"生成报告失败: {str(e)}"}), 500
+
+
+# ==========================================
+# 8. 获取报告详情 (PRD 3.1.5 核心接口) [New]
+# ==========================================
+@api_bp.route('/assessment/report/detail', methods=['GET'])
+def get_report_detail():
+    report_id = request.args.get('report_id')
+    uid = request.args.get('uid')
+
+    if not report_id or not uid:
+        return jsonify({"code": 400, "msg": "参数缺失"}), 400
+
+    report = AssessmentReport.query.get(report_id)
+    if not report:
+        return jsonify({"code": 404, "msg": "报告不存在"}), 404
+
+    # 权限校验
+    if str(report.session.user_id) != str(uid):
+        return jsonify({"code": 403, "msg": "无权查看此报告"}), 403
+
+    user = report.session.user
+
+    # 组装图表数据 (适配前端图表组件格式)
+    chart_data = []
+    for dim, val in report.radar_data.items():
+        chart_data.append({
+            "name": dim,
+            "value": val,
+            "fullMark": 5
+        })
+
+    # 风险颜色映射
+    color_map = {
+        "good": "green",
+        "mild": "yellow",
+        "moderate": "orange",
+        "severe": "red"
+    }
+
+    return jsonify({
+        "code": 200,
+        "msg": "获取成功",
+        "data": {
+            "base_info": {
+                "report_no": f"RPT-{report.id}",
+                "date": report.generated_at.strftime('%Y-%m-%d'),
+                "user_name": user.nickname,
+                "mode_name": "SCL-90 专业量表测评"
+            },
+            "core_result": {
+                "risk_level": report.risk_level,
+                "risk_color": color_map.get(report.risk_level, "green"),
+                "summary_label": report.summary_short,
+                "score_interpretation": "SCL-90采用1-5分评分制，分数越高代表症状越明显。≥2分提示存在轻度症状。"
+            },
+            "charts": {
+                "radar_data": chart_data
+            },
+            "content": {
+                # 直接返回数据库中已生成好的 Markdown
+                "advice_md": report.detail_content_md
+            },
+            "actions": {
+                "can_chat": True,
+                "can_download": True
+            }
+        }
+    })

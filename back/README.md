@@ -6,7 +6,7 @@ CREATE DATABASE soulstation_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 ## 2.数据库迁移脚本（建表）
 ```
 cd back
-# 1. 初始化
+# 1. 初始化（第一次执行，后面迁移不用）
 flask --app run db init
 
 # 2. 生成迁移脚本

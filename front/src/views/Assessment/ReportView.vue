@@ -53,7 +53,7 @@
               <span class="btn-text">{{ downloading ? '生成中...' : '下载报告' }}</span>
             </button>
 
-            <button class="action-btn back-btn" @click="goBack">
+            <button class="action-btn back-btn" @click="goHome">
               <span class="btn-icon">←</span>
               <span class="btn-text">返回</span>
             </button>
@@ -163,12 +163,6 @@
                 <span class="title-icon">📈</span>
                 心理维度雷达图
               </h3>
-              <div class="card-tools">
-                <button class="tool-btn" @click="toggleChartType">
-                  <span class="tool-icon">{{ chartType === 'radar' ? '📊' : '📈' }}</span>
-                  <span class="tool-text">{{ chartType === 'radar' ? '柱状图' : '雷达图' }}</span>
-                </button>
-              </div>
             </div>
             <div class="chart-container">
               <div ref="chartRef" class="chart" v-if="reportData.charts?.radar_data?.length"></div>
@@ -320,11 +314,7 @@
                   本报告仅供参考，不构成专业医疗建议。如有需要，请咨询专业心理医生。
                 </span>
               </div>
-              <div class="share-actions">
-                <button class="share-btn" @click="shareReport">
-                  <span class="share-icon">🔗</span>
-                  <span class="share-text">分享报告</span>
-                </button>
+              <div class="print-actions">
                 <button class="print-btn" @click="printReport">
                   <span class="print-icon">🖨️</span>
                   <span class="print-text">打印报告</span>
@@ -402,7 +392,6 @@ const router = useRouter()
 const loading = ref(true)
 const error = ref<ErrorInfo | null>(null)
 const reportData = ref<ReportData | null>(null)
-const chartType = ref<'radar' | 'bar'>('radar')
 const activeTab = ref<'advice' | 'summary'>('advice')
 const chartRef = ref<HTMLElement>()
 const reportContentRef = ref<HTMLElement>()
@@ -637,10 +626,6 @@ const handleResize = () => {
   }
 }
 
-const toggleChartType = () => {
-  chartType.value = chartType.value === 'radar' ? 'bar' : 'radar'
-}
-
 const getDimensionColor = (value: number): string => {
   if (value <= 2) return '#4caf50'
   if (value <= 3) return '#ff9800'
@@ -745,29 +730,12 @@ const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info')
   }, 3000)
 }
 
-const goBack = () => {
-  router.back()
-}
-
 const goHome = () => {
   router.push('/home')
 }
 
 const retry = () => {
   fetchReportData()
-}
-
-const shareReport = () => {
-  if (navigator.share) {
-    navigator.share({
-      title: '我的心理测评报告',
-      text: '查看我的心理测评报告结果',
-      url: window.location.href,
-    })
-  } else {
-    navigator.clipboard.writeText(window.location.href)
-    showToast('报告链接已复制到剪贴板', 'success')
-  }
 }
 
 const printReport = () => {
@@ -1247,31 +1215,6 @@ const printReport = () => {
   font-size: 20px;
 }
 
-.card-tools {
-  display: flex;
-  gap: 10px;
-}
-
-.tool-btn {
-  padding: 6px 12px;
-  background: rgba(0, 137, 123, 0.1);
-  border: 1px solid rgba(0, 137, 123, 0.2);
-  border-radius: 8px;
-  color: #00897b;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  transition: all 0.3s ease;
-}
-
-.tool-btn:hover {
-  background: rgba(0, 137, 123, 0.2);
-  transform: translateY(-2px);
-}
-
 /* 图表容器 */
 .chart-container {
   height: 300px;
@@ -1723,12 +1666,11 @@ const printReport = () => {
   line-height: 1.4;
 }
 
-.share-actions {
+.print-actions {
   display: flex;
   gap: 10px;
 }
 
-.share-btn,
 .print-btn {
   padding: 8px 16px;
   border: 1px solid rgba(0, 137, 123, 0.2);
@@ -1744,7 +1686,6 @@ const printReport = () => {
   transition: all 0.3s ease;
 }
 
-.share-btn:hover,
 .print-btn:hover {
   background: rgba(0, 137, 123, 0.1);
   transform: translateY(-2px);
@@ -1897,7 +1838,7 @@ const printReport = () => {
     align-items: flex-start;
   }
 
-  .share-actions {
+  .print-actions {
     width: 100%;
     justify-content: flex-start;
   }

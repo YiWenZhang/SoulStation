@@ -23,11 +23,15 @@
     <header class="page-header">
       <div class="header-content">
         <div class="header-left">
-          <div class="logo-section" @click="goHome">
+          <div class="logo-section" @click="handleGoHome">
             <div class="logo-icon">🌸</div>
             <div class="logo-text">
               <h1 class="site-title">心灵驿站</h1>
               <p class="site-subtitle">Mental Harbor</p>
+              <p class="home-hint">
+                <span class="hint-arrow">←</span>
+                点击以返回主页
+              </p>
             </div>
           </div>
         </div>
@@ -277,6 +281,7 @@
             </div>
           </div>
 
+          <!-- 修改：删除了清空答案按钮 -->
           <div class="sheet-footer">
             <div class="sheet-legend">
               <div class="legend-item">
@@ -292,10 +297,6 @@
                 <span class="legend-text">标记题</span>
               </div>
             </div>
-            <button class="clear-btn" @click="clearAllAnswers">
-              <span class="clear-icon">🗑️</span>
-              <span class="clear-text">清空答案</span>
-            </button>
           </div>
         </div>
       </aside>
@@ -336,6 +337,7 @@
         <button class="no-questions-btn" @click="goHome">返回首页</button>
       </div>
     </div>
+
     <!-- ========== 进入提示对话框========== -->
     <Teleport to="body">
       <Transition name="dialog-fade">
@@ -472,6 +474,50 @@
       </Transition>
     </Teleport>
 
+    <!-- ========== 新增：返回首页确认对话框 ========== -->
+    <Teleport to="body">
+      <Transition name="dialog-fade">
+        <div v-if="showGoHomeDialog" class="dialog-overlay" @click.self="cancelGoHome">
+          <div class="dialog-container go-home-dialog">
+            <div class="dialog-header">
+              <div class="dialog-icon-wrapper home">
+                <span class="dialog-icon">🏠</span>
+              </div>
+              <h3 class="dialog-title">返回首页</h3>
+            </div>
+            <div class="dialog-body">
+              <p class="dialog-message">确定要返回首页吗？</p>
+              <div class="save-info">
+                <span class="save-icon">💾</span>
+                <span class="save-text">您的答题进度已自动保存，下次可继续作答</span>
+              </div>
+              <div class="progress-summary">
+                <div class="summary-item">
+                  <span class="summary-label">当前进度</span>
+                  <span class="summary-value">{{ answeredCount }} / {{ questions.length }} 题</span>
+                </div>
+                <div class="summary-item">
+                  <span class="summary-label">完成度</span>
+                  <span class="summary-value highlight">{{ Math.round(progressPercentage) }}%</span>
+                </div>
+              </div>
+            </div>
+            <div class="dialog-footer">
+              <button class="dialog-btn secondary" @click="cancelGoHome">
+                <span class="btn-icon">📝</span>
+                <span>继续答题</span>
+              </button>
+              <button class="dialog-btn primary" @click="confirmGoHome" :disabled="savingProgress">
+                <span v-if="savingProgress" class="loading-spinner"></span>
+                <span class="btn-icon" v-else>🏠</span>
+                <span>{{ savingProgress ? '保存中...' : '返回首页' }}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
     <!-- ========== Toast 提示 ========== -->
     <Teleport to="body">
       <Transition name="toast-slide">
@@ -497,7 +543,7 @@ import {
 } from '../../api/assessment'
 
 // --- [新增] 状态变量 ---
-const showResumeDialog = ref(false) // 控制“检测到存档”弹窗
+const showResumeDialog = ref(false) // 控制"检测到存档"弹窗
 const tempSessionData = ref<StartResponse | null>(null) // 暂存后端返回的存档数据
 
 // 定义错误数据的类型
@@ -505,8 +551,8 @@ interface SubmitErrorData {
   total?: number
   answered?: number
   risk_level?: string
-  msg?: string // 添加这一行
-  [key: string]: unknown // 允许其他属性
+  msg?: string
+  [key: string]: unknown
 }
 
 const router = useRouter()
@@ -542,6 +588,10 @@ const submitResult = ref<{ report_id: number; risk_level: string }>({
   report_id: 0,
   risk_level: '',
 })
+
+// ========== 新增：返回首页对话框状态 ==========
+const showGoHomeDialog = ref(false)
+const savingProgress = ref(false)
 
 // Toast 相关
 const toastVisible = ref(false)
@@ -620,14 +670,10 @@ onMounted(async () => {
     if (startRes.code === 200) {
       const data = startRes.data as StartResponse
 
-      // === [核心修改逻辑] ===
       if (data.is_resumed) {
-        // A. 如果是存档：先暂存数据，不立即应用，并弹出询问框
         tempSessionData.value = data
         showResumeDialog.value = true
-        // 注意：这里暂停，不要调用 startTimer()，等用户选完
       } else {
-        // B. 如果是新会话：直接开始
         initSession(data)
       }
     }
@@ -649,8 +695,8 @@ const initSession = (data: StartResponse) => {
     currentIndex.value = 0
   }
 
-  loading.value = false // 关闭加载动画
-  startTimer() // 开始计时
+  loading.value = false
+  startTimer()
 }
 
 // --- [新增] 用户选择处理函数 ---
@@ -667,13 +713,11 @@ const handleResumeSession = () => {
 // 选择 2: 开启新测评
 const handleStartNewSession = async () => {
   showResumeDialog.value = false
-  loading.value = true // 显示加载转圈
+  loading.value = true
 
   try {
-    // 调用后端接口，强制 action='new'
     const res = await startAssessment(uid, 'new')
     if (res.code === 200) {
-      // 后端已经把旧的删了，返回了全新的session
       initSession(res.data)
       showToast('已开启全新测评', 'success')
     }
@@ -778,16 +822,6 @@ const scrollToUnanswered = () => {
   }
 }
 
-// 清空所有答案
-const clearAllAnswers = () => {
-  if (confirm('确定要清空所有答案吗？这个操作不可撤销。')) {
-    answers.value = {}
-    flaggedQuestions.value = []
-    currentIndex.value = 0
-    showToast('已清空所有答案', 'info')
-  }
-}
-
 // 获取分数样式
 const getScoreClass = (score: number) => {
   if (score <= 2) return 'score-low'
@@ -815,7 +849,6 @@ const confirmSubmit = async () => {
     const response = await submitAssessment(sessionId.value)
 
     if (response.code === 200) {
-      // 提交成功
       showConfirmDialog.value = false
       submitResult.value = {
         report_id: response.data.report_id,
@@ -823,19 +856,17 @@ const confirmSubmit = async () => {
       }
       showSuccessDialog.value = true
     } else {
-      // 根据不同错误码处理
       handleSubmitError(response.code, response.msg, response.data as SubmitErrorData)
     }
   } catch (error: unknown) {
     console.error('提交失败:', error)
     showConfirmDialog.value = false
 
-    // 处理网络错误或其他异常
     if (error && typeof error === 'object' && 'response' in error) {
       const err = error as { response?: { status?: number; data?: SubmitErrorData } }
       const status = err.response?.status || 500
-      const data: SubmitErrorData = err.response?.data || {} // 明确类型
-      handleSubmitError(status, data.msg || '服务器错误', data) // 移除 ?
+      const data: SubmitErrorData = err.response?.data || {}
+      handleSubmitError(status, data.msg || '服务器错误', data)
     } else {
       showErrorMessage('网络连接失败', '请检查您的网络连接后重试', true)
     }
@@ -851,13 +882,11 @@ const handleSubmitError = (code: number, msg: string, data?: SubmitErrorData) =>
   switch (code) {
     case 400:
       if (msg.includes('未完成') || msg.includes('没有答题')) {
-        // 题目未答完
         const total = data?.total || questions.value.length
         const answered = data?.answered || answeredCount.value
         const unanswered = total - answered
         showErrorMessage(`还有 ${unanswered} 道题目未完成`, '请继续完成所有题目后再提交', false)
 
-        // 跳转到第一个未答题目
         const firstUnanswered = questions.value.findIndex((q) => answers.value[q.id] === undefined)
         if (firstUnanswered !== -1) {
           setTimeout(() => {
@@ -929,6 +958,54 @@ const getRiskIcon = (level: string) => {
   return iconMap[level] || '📊'
 }
 
+// ========== 新增：返回首页相关方法 ==========
+
+// 点击心灵驿站按钮 - 显示确认对话框
+const handleGoHome = () => {
+  showGoHomeDialog.value = true
+}
+
+// 取消返回首页
+const cancelGoHome = () => {
+  showGoHomeDialog.value = false
+}
+
+// 确认返回首页
+const confirmGoHome = async () => {
+  savingProgress.value = true
+
+  try {
+    // 先保存当前进度
+    if (sessionId.value > 0) {
+      await saveProgress(sessionId.value, currentIndex.value, answers.value)
+    }
+
+    showGoHomeDialog.value = false
+    showToast('进度已保存', 'success')
+
+    // 延迟跳转，让用户看到保存成功的提示
+    setTimeout(() => {
+      router.push('/home')
+    }, 500)
+  } catch (error) {
+    console.error('保存进度失败:', error)
+    showToast('保存失败，但仍可返回首页', 'warning')
+
+    // 即使保存失败也允许返回
+    setTimeout(() => {
+      showGoHomeDialog.value = false
+      router.push('/home')
+    }, 1000)
+  } finally {
+    savingProgress.value = false
+  }
+}
+
+// 直接返回首页（用于无题目时）
+const goHome = () => {
+  router.push('/home')
+}
+
 // ========== Toast 相关方法 ==========
 const showToast = (message: string, type: 'success' | 'error' | 'warning' | 'info' = 'info') => {
   if (toastTimer) clearTimeout(toastTimer)
@@ -942,13 +1019,6 @@ const showToast = (message: string, type: 'success' | 'error' | 'warning' | 'inf
   toastTimer = setTimeout(() => {
     toastVisible.value = false
   }, 3000)
-}
-
-// 返回首页
-const goHome = () => {
-  if (confirm('返回首页？您的进度已自动保存。')) {
-    router.push('/home')
-  }
 }
 </script>
 
@@ -1163,7 +1233,36 @@ const goHome = () => {
   margin: 2px 0 0 0;
   letter-spacing: 1px;
 }
+.home-hint {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: #90a4ae;
+  font-size: 10px;
+  margin: 4px 0 0 0;
+  opacity: 0.8;
+  transition: all 0.3s ease;
+}
 
+.logo-section:hover .home-hint {
+  color: #00897b;
+  opacity: 1;
+}
+
+.hint-arrow {
+  font-size: 12px;
+  animation: arrowBounce 1.5s infinite ease-in-out;
+}
+
+@keyframes arrowBounce {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(-3px);
+  }
+}
 .header-center {
   text-align: center;
   flex: 1;
@@ -2046,18 +2145,17 @@ const goHome = () => {
   }
 }
 
+/* 修改：简化后的sheet-footer样式 */
 .sheet-footer {
   margin-top: 12px;
   padding-top: 10px;
   border-top: 1px solid rgba(0, 137, 123, 0.1);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
 }
 
 .sheet-legend {
   display: flex;
   gap: 10px;
+  justify-content: center;
 }
 
 .legend-item {
@@ -2082,26 +2180,6 @@ const goHome = () => {
 }
 .legend-dot.flagged {
   background: #ff9800;
-}
-
-.clear-btn {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 6px 12px;
-  background: rgba(244, 67, 54, 0.1);
-  color: #f44336;
-  border: 1px solid rgba(244, 67, 54, 0.2);
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 11px;
-  font-weight: 600;
-  transition: all 0.3s ease;
-}
-
-.clear-btn:hover {
-  background: rgba(244, 67, 54, 0.2);
-  transform: translateY(-2px);
 }
 
 /* 加载状态 */
@@ -2362,6 +2440,11 @@ const goHome = () => {
   background: linear-gradient(135deg, rgba(244, 67, 54, 0.1), rgba(239, 83, 80, 0.1));
 }
 
+/* 新增：返回首页对话框图标样式 */
+.dialog-icon-wrapper.home {
+  background: linear-gradient(135deg, rgba(0, 137, 123, 0.1), rgba(0, 172, 193, 0.1));
+}
+
 .dialog-title {
   color: #263238;
   font-size: 22px;
@@ -2399,6 +2482,63 @@ const goHome = () => {
   color: #e65100;
   font-size: 14px;
   font-weight: 600;
+}
+
+/* 新增：保存信息样式 */
+.save-info {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  background: linear-gradient(135deg, rgba(76, 175, 80, 0.1), rgba(129, 199, 132, 0.1));
+  padding: 12px 20px;
+  border-radius: 12px;
+  border: 1px solid rgba(76, 175, 80, 0.2);
+  margin-bottom: 15px;
+}
+
+.save-icon {
+  font-size: 20px;
+}
+
+.save-text {
+  color: #2e7d32;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+/* 新增：进度摘要样式 */
+.progress-summary {
+  background: rgba(0, 137, 123, 0.05);
+  border-radius: 12px;
+  padding: 15px;
+  border: 1px solid rgba(0, 137, 123, 0.1);
+}
+
+.summary-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+}
+
+.summary-item:not(:last-child) {
+  border-bottom: 1px dashed rgba(0, 137, 123, 0.1);
+}
+
+.summary-label {
+  color: #78909c;
+  font-size: 14px;
+}
+
+.summary-value {
+  color: #263238;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.summary-value.highlight {
+  color: #00897b;
+  font-size: 16px;
 }
 
 .risk-level-badge {
@@ -2503,10 +2643,15 @@ const goHome = () => {
   flex: 1;
 }
 
-.dialog-btn.primary:hover {
+.dialog-btn.primary:hover:not(:disabled) {
   background: linear-gradient(135deg, #00796b, #0097a7);
   transform: translateY(-2px);
   box-shadow: 0 8px 20px rgba(0, 137, 123, 0.3);
+}
+
+.dialog-btn.primary:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
 }
 
 .dialog-btn.secondary {

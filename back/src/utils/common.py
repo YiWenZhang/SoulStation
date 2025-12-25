@@ -106,6 +106,46 @@ def get_score_level(score):
         return 5
 
 
+# ==========================================
+# 3. 新增辅助函数 (用于API直接返回结构化数据)
+# ==========================================
+
+
+def get_dimension_description(dimension, score):
+    """根据分数动态查表获取解释"""
+    level_int = get_score_level(score)
+    level_labels = {1: "无", 2: "轻微", 3: "中度", 4: "中重", 5: "严重"}
+
+    # 容错匹配
+    rule_key = dimension
+    if dimension not in SCL90_RULES and dimension in ["睡眠", "饮食"]:
+        rule_key = "其他"
+
+    content_map = SCL90_RULES.get(rule_key, SCL90_RULES.get("其他", {}))
+    desc = content_map.get(level_int, content_map.get(2, "暂无详细解释"))
+
+    return {
+        "level_int": level_int,
+        "level_str": level_labels.get(level_int, "未知"),
+        "description": desc
+    }
+
+def get_overall_risk_comment(risk_level):
+    """
+    根据风险等级返回整体评估建议
+    """
+    if risk_level == 'good':
+        return "您的心理状态整体良好。各维度评分均在正常范围内，显示出您拥有较好的心理调节能力和适应能力。请继续保持当前的生活方式，注重劳逸结合。"
+    elif risk_level == 'mild':
+        return "您的心理状态存在轻微波动。虽然大部分维度正常，但在部分领域表现出了些许压力迹象。这通常是近期生活事件引起的暂时性反应，通过自我调节通常可以缓解。"
+    elif risk_level == 'moderate':
+        return "您目前的心理状态主要表现为中度风险。数据显示您在某些维度上承受了较为明显的困扰，可能已经影响到了日常生活的质量。建议您重视这些信号，并尝试积极干预。"
+    elif risk_level == 'severe':
+        return "您目前的心理状态风险较高。多个核心维度的评分显著超出常模，表明您可能正处于一段较为艰难的时期。这并非软弱的表现，而是身心发出的求助信号，建议及时寻求专业帮助。"
+    else:
+        return "您的心理状态存在轻微波动，建议保持关注。"
+
+
 def generate_report_markdown(radar_data, risk_level, high_risk_dims):
     """
     生成详细的 Markdown 报告文本
@@ -167,3 +207,36 @@ def generate_report_markdown(radar_data, risk_level, high_risk_dims):
 """
 
     return summary_text + advice_text + general_text
+
+
+def calculate_scl90_level(score):
+    """
+    根据 SCL-90 因子分计算等级 (1-5级)
+    逻辑参考：
+    1.0 - 1.5 : 1级 (无)
+    1.5 - 2.5 : 2级 (轻度)
+    2.5 - 3.5 : 3级 (中度)
+    3.5 - 4.5 : 4级 (偏重)
+    4.5 - 5.0 : 5级 (严重)
+    """
+    try:
+        s = float(score)
+    except:
+        return 1
+
+    if s < 1.5: return 1
+    if s < 2.5: return 2
+    if s < 3.5: return 3
+    if s < 4.5: return 4
+    return 5
+
+def get_risk_suggestion(risk_level):
+    """
+    根据总体风险等级返回一句话建议 (用于顶部展示)
+    """
+    mapping = {
+        'good': "您的心理健康状况整体良好，请继续保持积极心态。",
+        'moderate': "您的心理状态存在一定波动，建议关注特定的情绪反应。",
+        'severe': "检测到您的心理压力较大，建议寻求专业心理咨询师的帮助。"
+    }
+    return mapping.get(risk_level, "无数据")

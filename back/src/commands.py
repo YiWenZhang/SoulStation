@@ -2,6 +2,10 @@ import click
 from flask.cli import with_appcontext
 from .extensions import db
 from .models import Question, QuestionOption, QuestionCategory
+# 1. 引入所有模型，确保 db.create_all 能扫描到
+from .models import User, Question, QuestionOption, QuestionCategory, AssessmentSession, AssessmentReport, AssessmentRule
+# 2. 引入规则源数据
+from .utils.common import SCL90_RULES
 
 # ==========================================
 # 1. 准备数据 (完整 SCL-90 数据)
@@ -63,29 +67,38 @@ SCL90_DATA = [
 
 @click.command('init-data')  # 这里的名字 'init-data' 就是你在命令行调用的名字
 @with_appcontext
+@click.command('init-data')
+@with_appcontext
 def seed_scl90_command():
-    """初始化 SCL-90 题库数据"""
-    click.echo('>>> 开始初始化 SCL-90 题库...')
+    """【升级版】初始化 SCL-90 题库 + 解释规则"""
+    click.echo('>>> 开始初始化 SCL-90 完整数据...')
 
-    # 1. 清理旧数据
-    click.echo('正在清理旧数据...')
-    db.session.query(QuestionOption).delete()
-    db.session.query(Question).delete()
-    db.session.query(QuestionCategory).delete()
-    db.session.commit()
+    # 1. 清理旧数据 (注意顺序，先删子表再删主表)
+    click.echo('1. 清理旧数据...')
+    try:
+        db.session.query(QuestionOption).delete()
+        db.session.query(Question).delete()
+        db.session.query(QuestionCategory).delete()
+        # 新增：清理规则表
+        db.session.query(AssessmentRule).delete()
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        click.echo(f'⚠️ 清理数据时遇到错误 (可能是表不存在，可忽略): {e}')
 
     # 2. 写入维度
+    click.echo('2. 写入 10 个维度...')
     cat_objs = []
     for name in CATEGORIES:
         cat = QuestionCategory(name=name)
         db.session.add(cat)
         cat_objs.append(cat)
     db.session.commit()
-    click.echo(f'已创建 {len(CATEGORIES)} 个维度')
 
     # 3. 写入题目
-    click.echo('正在写入 90 道题目...')
+    click.echo('3. 写入 90 道题目...')
     for stem, cat_idx in SCL90_DATA:
+        # 容错处理
         if 0 <= cat_idx < len(cat_objs):
             category = cat_objs[cat_idx]
         else:
@@ -99,8 +112,9 @@ def seed_scl90_command():
             is_enabled=True
         )
         db.session.add(q)
-        db.session.flush()
+        db.session.flush()  # 获取 q.id
 
+        # 写入选项
         for opt in OPTIONS:
             option = QuestionOption(
                 question_id=q.id,
@@ -109,5 +123,26 @@ def seed_scl90_command():
             )
             db.session.add(option)
 
+    # 4. 【新增】写入维度解释规则
+    click.echo('4. 写入维度解释规则 (Metadata)...')
+    rule_count = 0
+    for dim, levels in SCL90_RULES.items():
+        for lvl, text in levels.items():
+            # text 格式: "轻微：偶尔出现..."
+            parts = text.split("：", 1)
+            label = parts[0]
+            desc = parts[1] if len(parts) > 1 else text
+
+            rule = AssessmentRule(
+                dimension_name=dim,
+                level=lvl,
+                level_label=label,
+                description=desc
+            )
+            db.session.add(rule)
+            rule_count += 1
+
     db.session.commit()
-    click.echo(f'>>> 成功！共导入 {len(SCL90_DATA)} 道 SCL-90 题目及其选项。')
+    click.echo(f'>>> ✅ 成功！导入了 90 道题目和 {rule_count} 条解释规则。')
+
+

@@ -70,7 +70,7 @@ class AssessmentReport(db.Model):
     # 报告核心展示
     summary_short = db.Column(db.String(255), comment='综合心理状态标签')
     detail_content_md = db.Column(MEDIUMTEXT, comment='Markdown详情')
-    radar_data = db.Column(JSON, comment='雷达图数据')
+    radar_data = db.Column(db.JSON)
 
     # 数据管理页所需的筛选字段
     # risk_level: 'good', 'mild', 'moderate', 'severe'
@@ -78,6 +78,10 @@ class AssessmentReport(db.Model):
 
     # 存储高风险维度列表，如 ["anxiety", "depression"]，用于高级搜索
     high_risk_dimensions = db.Column(JSON, comment='核心高风险维度')
+
+    # === 新增：只存核心数值，不存冗余文案 ===
+    total_score = db.Column(db.Float, default=0.0, comment='总分')
+    total_avg = db.Column(db.Float, default=0.0, comment='总均分')
 
     generated_at = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -234,3 +238,21 @@ class UserFeedback(db.Model):
 
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, onupdate=datetime.utcnow)
+
+
+# ==========================================
+# 【新增】 维度解释规则表 (专门存文案)
+# ==========================================
+class AssessmentRule(db.Model):
+    __tablename__ = 'assessment_rules'
+
+    id = db.Column(db.Integer, primary_key=True)
+    dimension_name = db.Column(db.String(50), index=True, comment='维度: 焦虑/抑郁...')
+    level = db.Column(db.Integer, comment='等级: 1-5')
+    level_label = db.Column(db.String(20), comment='标签: 无/轻微/严重')
+    description = db.Column(db.Text, comment='解释文案')
+
+    # 联合唯一索引，确保 (维度+等级) 只有一条记录
+    __table_args__ = (
+        db.UniqueConstraint('dimension_name', 'level', name='uq_dimension_level'),
+    )

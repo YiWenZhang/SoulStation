@@ -3,7 +3,7 @@
 CREATE DATABASE soulstation_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 ```
 
-## 2.数据库初始化
+## 2.数据库迁移脚本（建表）
 ```
 cd back
 # 1. 初始化
@@ -16,17 +16,12 @@ flask --app run db migrate -m "init mysql"
 flask --app run db upgrade
 ```
 
-## 3.数据库迁移-创建问卷
+## 3.导入数据指令
 ```
-cd back
-flask --app run db migrate -m "add question tables"
-flask --app run db upgrade
-flask --app run init-data
-
 flask init-data
 ```
 
-## 4.测试专用数据库
+## 4.测试专用数据库建立
 ```
 CREATE DATABASE soulstation_test CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 ```

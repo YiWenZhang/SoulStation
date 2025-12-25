@@ -48,10 +48,6 @@
                     <span class="menu-icon">📂</span>
                     <span>历史档案</span>
                   </div>
-                  <div class="menu-item" @click="gotoSettings">
-                    <span class="menu-icon">⚙️</span>
-                    <span>设置</span>
-                  </div>
 
                   <div class="menu-divider"></div>
 
@@ -291,11 +287,6 @@ const gotoHistory = () => {
   console.log('跳转到历史档案') // 方便调试
   router.push('/history')
   showUserMenu.value = false // 跳转后关闭菜单
-}
-
-const gotoSettings = () => {
-  router.push('/settings')
-  showUserMenu.value = false
 }
 
 // 删除的三个功能相关方法已移除

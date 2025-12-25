@@ -21,7 +21,13 @@ class Config:
     AI_API_KEY = os.getenv('AI_API_KEY')
     AI_BASE_URL = os.getenv('AI_BASE_URL', 'https://api.deepseek.com')
     AI_MODEL_NAME = os.getenv('AI_MODEL_NAME', 'deepseek-chat')
-
+    # === 新增配置 ===
+    # 上传文件存储的基础路径 (在 back/static/avatars)
+    UPLOAD_FOLDER = os.path.join(basedir, 'static', 'avatars')
+    # 允许上传的格式
+    ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
+    # 最大上传限制 (例如 2MB)
+    MAX_CONTENT_LENGTH = 2 * 1024 * 1024
 
 class DevelopmentConfig(Config):
     DEBUG = True

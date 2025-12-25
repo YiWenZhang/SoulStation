@@ -26,7 +26,7 @@
         <div class="header-right">
           <!-- 用户信息和退出按钮向左移动 -->
           <div class="user-info-area">
-            <div class="user-info" @click="showUserMenu = !showUserMenu">
+            <div class="user-info" @click.stop="showUserMenu = !showUserMenu">
               <img :src="userInfo.avatar_url || defaultAvatar" alt="用户头像" class="avatar" />
               <div class="user-details">
                 <span class="nickname">{{ userInfo.nickname }}</span>
@@ -37,18 +37,24 @@
               </div>
               <div class="dropdown-arrow" :class="{ 'rotate-180': showUserMenu }">▼</div>
 
-              <!-- 用户下拉菜单 -->
               <transition name="slide-fade">
                 <div v-if="showUserMenu" class="user-menu" @click.stop>
                   <div class="menu-item" @click="gotoProfile">
                     <span class="menu-icon">👤</span>
                     <span>个人资料</span>
                   </div>
+
+                  <div class="menu-item" @click="gotoHistory">
+                    <span class="menu-icon">📂</span>
+                    <span>历史档案</span>
+                  </div>
                   <div class="menu-item" @click="gotoSettings">
                     <span class="menu-icon">⚙️</span>
                     <span>设置</span>
                   </div>
+
                   <div class="menu-divider"></div>
+
                   <div class="menu-item logout-item" @click="handleLogout">
                     <span class="menu-icon">🚪</span>
                     <span>退出登录</span>
@@ -56,10 +62,10 @@
                 </div>
               </transition>
             </div>
-            <button class="logout-btn" @click="handleLogout">
+            <!-- <button class="logout-btn" @click="handleLogout">
               <span class="btn-icon">🚪</span>
               <span class="btn-text">退出</span>
-            </button>
+            </button> -->
           </div>
         </div>
       </div>
@@ -160,55 +166,6 @@
             </div>
             <div class="card-corner">
               <div class="corner-icon">⭐</div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 历史记录区域 -->
-      <div class="history-section" v-if="historyRecords.length > 0">
-        <div class="section-header">
-          <div class="section-title-container">
-            <div class="section-icon">📅</div>
-            <h2 class="history-title">测评历史记录</h2>
-          </div>
-          <p class="section-description">查看您过往的心理健康测评记录</p>
-        </div>
-        <div class="history-list">
-          <div
-            class="history-item"
-            v-for="record in historyRecords"
-            :key="record.id"
-            @click="viewRecordDetail(record.id)"
-          >
-            <div class="item-decoration" :class="record.risk_level"></div>
-            <div class="item-left">
-              <div class="record-date">
-                <span class="date-icon">📅</span>
-                {{ record.date }}
-              </div>
-              <div class="record-mode">
-                <span class="mode-tag" :class="record.mode">
-                  {{ getModeText(record.mode) }}
-                </span>
-              </div>
-            </div>
-            <div class="item-center">
-              <div class="record-summary">{{ record.summary }}</div>
-              <div class="record-tags">
-                <span class="duration-tag">⏱️ 约15分钟</span>
-                <span class="accuracy-tag">🎯 准确度98%</span>
-              </div>
-            </div>
-            <div class="item-right">
-              <div class="risk-indicator" :class="record.risk_level">
-                <div class="risk-dot"></div>
-                <span class="risk-text">{{ getRiskText(record.risk_level) }}</span>
-              </div>
-              <div class="view-detail">
-                <span class="view-text">查看详情</span>
-                <span class="view-arrow">→</span>
-              </div>
             </div>
           </div>
         </div>
@@ -324,43 +281,21 @@ const gotoAssessment = (mode: string) => {
   router.push(`/assessment?mode=${mode}`)
 }
 
-const getModeText = (mode: string): string => {
-  switch (mode) {
-    case 'ai_chat':
-      return 'AI对话测评'
-    case 'scale':
-      return '量表测评'
-    default:
-      return '未知测评方式'
-  }
-}
-
-const getRiskText = (riskLevel: string): string => {
-  switch (riskLevel) {
-    case 'mild':
-      return '轻度关注'
-    case 'moderate':
-      return '中度关注'
-    case 'severe':
-      return '需要关注'
-    default:
-      return '状态良好'
-  }
-}
-
 // 导航方法
 const gotoProfile = () => {
   router.push('/profile')
   showUserMenu.value = false
 }
 
+const gotoHistory = () => {
+  console.log('跳转到历史档案') // 方便调试
+  router.push('/history')
+  showUserMenu.value = false // 跳转后关闭菜单
+}
+
 const gotoSettings = () => {
   router.push('/settings')
   showUserMenu.value = false
-}
-
-const viewRecordDetail = (id: number) => {
-  router.push(`/record/${id}`)
 }
 
 // 删除的三个功能相关方法已移除

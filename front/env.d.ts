@@ -2,7 +2,7 @@
 
 declare module '*.vue' {
   import type { DefineComponent } from 'vue'
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/ban-types
-  const component: DefineComponent<{}, {}, any>
+  // 将所有的泛型参数都设为 object，彻底解决 {} 和 any 的报错
+  const component: DefineComponent<object, object, object>
   export default component
 }

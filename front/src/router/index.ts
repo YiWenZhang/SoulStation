@@ -1,3 +1,4 @@
+console.log('🔥 路由文件正在加载！')
 import { createRouter, createWebHistory } from 'vue-router'
 import HomeView from '../views/HomeView.vue'
 import AdminDashboard from '../views/Admin/Dashboard.vue'
@@ -73,20 +74,26 @@ const router = createRouter({
 
     // --- 历史记录模块路由 (导航栏入口) ---
     // 👇【新增】历史记录列表
-    // {
-    //   path: '/history',
-    //   name: 'historyList',
-    //   component: () => import('../views/History/HistoryList.vue'),
-    //   meta: { requiresAuth: true, role: 'user' },
-    // },
+    {
+      path: '/history',
+      name: 'historyList',
+      component: () => import('../views/History/HistoryList.vue'),
+      meta: { requiresAuth: true, role: 'user' },
+    },
     // 👇【新增】历史问诊详情 (点击某次问诊记录)
-    // {
-    //   path: '/history/consultation/:id',
-    //   name: 'historyConsultationDetail',
-    //   component: () => import('../views/History/ConsultationDetail.vue'),
-    //   meta: { requiresAuth: true, role: 'user' },
-    // },
-
+    {
+      path: '/history/consultation/:id',
+      name: 'historyConsultationDetail',
+      component: () => import('../views/History/ConsultationDetail.vue'),
+      meta: { requiresAuth: true, role: 'user' },
+    },
+    // 👇【新增】个人资料页
+    {
+      path: '/profile',
+      name: 'profile',
+      component: () => import('../views/ProfileView.vue'),
+      meta: { requiresAuth: true, role: 'user' },
+    },
     { path: '/test', name: 'test', component: Test },
   ],
 })
@@ -110,4 +117,8 @@ router.beforeEach((to, from, next) => {
   next()
 })
 
+console.log(
+  '所有注册的路由:',
+  router.getRoutes().map((r) => r.path),
+)
 export default router

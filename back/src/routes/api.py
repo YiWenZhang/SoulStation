@@ -711,3 +711,109 @@ def get_consultation_detail_in_api():
     except Exception as e:
         print(f"Error getting detail: {e}")
         return jsonify({'code': 500, 'msg': '获取详情失败'}), 500
+
+
+
+# ==========================================
+# 10. 个人主页修改
+# ==========================================
+import os
+from flask import request, jsonify, current_app, url_for
+from werkzeug.utils import secure_filename
+from src.extensions import db
+from src.models import User
+import uuid
+
+
+# --- 辅助函数：检查文件扩展名 ---
+def allowed_file(filename):
+    return '.' in filename and \
+        filename.rsplit('.', 1)[1].lower() in current_app.config['ALLOWED_EXTENSIONS']
+
+
+# --- 1. 修改用户基本信息 (昵称) ---
+@api_bp.route('/user/profile', methods=['POST'])
+def update_profile():
+    # 假设前端传递的是 JSON: { "uid": 1, "nickname": "新名字" }
+    # 实际项目中应该从 Token 获取 uid，这里为了保持你现有的风格，从参数获取
+    data = request.get_json()
+    uid = data.get('uid')
+    nickname = data.get('nickname')
+
+    if not uid or not nickname:
+        return jsonify({'code': 400, 'msg': '参数缺失'}), 400
+
+    user = User.query.get(uid)
+    if not user:
+        return jsonify({'code': 404, 'msg': '用户不存在'}), 404
+
+    try:
+        user.nickname = nickname
+        db.session.commit()
+        return jsonify({
+            'code': 200,
+            'msg': '修改成功',
+            'data': {
+                'nickname': user.nickname
+            }
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'code': 500, 'msg': str(e)}), 500
+
+
+# --- 2. 上传头像 ---
+@api_bp.route('/user/avatar', methods=['POST'])
+def upload_avatar():
+    # 前端需要使用 FormData 发送数据，字段名为 'file'，同时附带 'uid'
+    if 'file' not in request.files:
+        return jsonify({'code': 400, 'msg': '未找到文件'}), 400
+
+    file = request.files['file']
+    uid = request.form.get('uid')
+
+    if not uid:
+        return jsonify({'code': 400, 'msg': '缺少用户ID'}), 400
+
+    if file.filename == '':
+        return jsonify({'code': 400, 'msg': '文件名为空'}), 400
+
+    if file and allowed_file(file.filename):
+        try:
+            # 1. 生成安全的文件名 (使用 UUID 防止重名)
+            ext = file.filename.rsplit('.', 1)[1].lower()
+            filename = f"user_{uid}_{uuid.uuid4().hex[:8]}.{ext}"
+
+            # 2. 确保目录存在
+            upload_path = current_app.config['UPLOAD_FOLDER']
+            if not os.path.exists(upload_path):
+                os.makedirs(upload_path)
+
+            # 3. 保存文件
+            file_path = os.path.join(upload_path, filename)
+            file.save(file_path)
+
+            # 4. 生成可访问的 URL
+            # 假设后端运行在 5000 端口，静态文件路径为 /static/avatars/...
+            # 这里的 URL 需要根据你的实际部署域名调整，本地开发通常是相对路径或完整路径
+            avatar_url = f"/static/avatars/{filename}"
+
+            # 5. 更新数据库
+            user = User.query.get(uid)
+            if user:
+                user.avatar_url = avatar_url
+                db.session.commit()
+
+            return jsonify({
+                'code': 200,
+                'msg': '头像上传成功',
+                'data': {
+                    'avatar_url': avatar_url
+                }
+            })
+
+        except Exception as e:
+            print(e)
+            return jsonify({'code': 500, 'msg': '上传处理失败'}), 500
+
+    return jsonify({'code': 400, 'msg': '不支持的文件格式'}), 400

@@ -1,3 +1,21 @@
+## 环境配置
+确保.env存在于back目录下，格式如下
+```
+# 1. 告诉 Flask 启动入口在哪里 (必须写，否则 flask db 命令会报错)
+FLASK_APP=run.py
+
+# 2. 设置环境模式 (默认为 development，开启调试模式)
+FLASK_CONFIG=development
+
+# 3. 安全密钥 (Session加密用)
+SECRET_KEY=你的密钥
+
+# 4.ai配置
+AI_API_KEY=你的密码
+AI_BASE_URL=https://api.deepseek.com
+AI_MODEL_NAME=deepseek-chat
+```
+
 ## 1.MySQL数据库的创建
 ```
 CREATE DATABASE soulstation_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;

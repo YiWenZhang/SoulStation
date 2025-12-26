@@ -302,7 +302,7 @@
     <Teleport to="body">
       <Transition name="modal-fade">
         <div v-if="showReportDialog" class="modal-overlay" @click.self="showReportDialog = false">
-          <div class="report-modal">
+          <div class="report-modal success-modal">
             <div class="modal-header">
               <div class="modal-title">
                 <span class="title-icon">🩺</span>
@@ -313,7 +313,11 @@
               </button>
             </div>
             <div class="modal-body">
-              <div class="report-content markdown-body" v-html="renderMarkdown(finalReport)"></div>
+              <div class="success-content">
+                <div class="success-icon">✅</div>
+                <h3 class="success-title">AI问诊病历报告生成成功！</h3>
+                <p class="success-desc">您可以在历史档案中查看完整报告</p>
+              </div>
             </div>
             <div class="modal-footer">
               <button class="modal-btn secondary" @click="showReportDialog = false">
@@ -2295,5 +2299,50 @@ kbd {
     flex-direction: column;
     text-align: center;
   }
+}
+/* ============ 成功提示弹窗 ============ */
+.success-modal {
+  max-width: 450px;
+}
+
+.success-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 40px 20px;
+  text-align: center;
+}
+
+.success-icon {
+  font-size: 64px;
+  margin-bottom: 20px;
+  animation: successBounce 0.6s ease-out;
+}
+
+@keyframes successBounce {
+  0% {
+    transform: scale(0);
+    opacity: 0;
+  }
+  50% {
+    transform: scale(1.2);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.success-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: #2e7d32;
+  margin: 0 0 12px;
+}
+
+.success-desc {
+  font-size: 14px;
+  color: #78909c;
+  margin: 0;
 }
 </style>

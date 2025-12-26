@@ -335,6 +335,7 @@ def _generate_diagnosis_summary(chat_history, consultation,manual=False):
 请直接输出 Markdown 内容。
 
 【量化评估要求】
+重要：在量化评估要求部分的开头，生成四个字“以下删除”并换行，因为这一部分不显示到前端！！！！
     请根据对话内容，重新评估 SCL-90 各维度的当前分数（1.0-5.0，保留两位小数）。
     并在回复的最后，以 JSON 格式输出如下数据：
     {{

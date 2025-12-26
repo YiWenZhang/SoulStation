@@ -634,50 +634,45 @@ let comparisonChartInstance: echarts.ECharts | null = null
  * 【修复】清理诊断总结内容
  * 删除：量化评估更新、SCL-90分数、JSON数据等
  */
+/**
+ * 【修复版】清理诊断总结内容
+ * 精确删除：量化评估章节、JSON数据、分数列表等
+ * 不会误删有效内容
+ */
 const cleanDiagnosisSummary = (md: string | null | undefined): string => {
   if (!md) return ''
 
   let cleaned = md
 
-  // ========== 1. 删除中文序号格式的"量化评估"部分 ==========
-  // 匹配 "五、量化评估更新 (SCL-90)" 及后续所有内容
-  cleaned = cleaned.replace(/[一二三四五六七八九十]+[、.．]\s*量化评估[\s\S]*/gi, '')
-
-  // ========== 3. 删除阿拉伯数字序号格式 ==========
-  // 匹配 "4. **备注**" 或 "5. 量化评估" 等
-  cleaned = cleaned.replace(/\d+[\.、．]\s*\**备注\**[\s\S]*/gi, '')
-  cleaned = cleaned.replace(/\d+[\.、．]\s*\**量化评估[\s\S]*/gi, '')
-
-  // ========== 4. 删除其他格式的量化评估内容 ==========
-  // 匹配 "量化评估更新" 开头的所有后续内容
-  cleaned = cleaned.replace(/量化评估更新[\s\S]*/gi, '')
-  cleaned = cleaned.replace(/量化评估[\s\S]*/gi, '')
-
-  // 匹配 Markdown 标题格式 "### 量化评估" 等
-  cleaned = cleaned.replace(/#{1,6}\s*量化评估[\s\S]*/gi, '')
-
-  // 匹配 "**量化评估**" 或 "**量化评估更新**"
-  cleaned = cleaned.replace(/\*\*量化评估[^*]*\*\*[\s\S]*/gi, '')
-
-  // 匹配 "SCL-90" 或 "(SCL-90)" 及后续内容
-  cleaned = cleaned.replace(/\(?SCL-?90\)?[\s\S]*/gi, '')
-
-  // ========== 5. 删除其他格式的备注内容 ==========
-  cleaned = cleaned.replace(/\*\*备注\*\*[\s\S]*/gi, '')
-  cleaned = cleaned.replace(/#{1,6}\s*备注[\s\S]*/gi, '')
-
-  // ========== 6. 删除 JSON 和代码块 ==========
+  // ========== 1. 删除代码块（JSON等） ==========
+  cleaned = cleaned.replace(/```json[\s\S]*?```/gi, '')
   cleaned = cleaned.replace(/```[\s\S]*?```/gi, '')
-  cleaned = cleaned.replace(/\{[\s\S]*?"scores"[\s\S]*?\}/gi, '')
-  cleaned = cleaned.replace(/\{[\s\S]*?["']躯体化["'][\s\S]*?\}/gi, '')
 
-  // ========== 7. 删除日期相关行 ==========
-  cleaned = cleaned.replace(/^.*就诊日期.*$/gm, '')
-  cleaned = cleaned.replace(/^.*诊断日期.*$/gm, '')
-  cleaned = cleaned.replace(/^.*问诊日期.*$/gm, '')
-  cleaned = cleaned.replace(/^.*日期[：:]\s*\d{4}.*$/gm, '')
+  // ========== 2. 删除独立的 JSON 对象 ==========
+  // 匹配 { ... "scores" ... } 或 { ... "躯体化" ... } 格式的JSON
+  cleaned = cleaned.replace(/\{[^{}]*"scores"[^{}]*\}/g, '')
+  cleaned = cleaned.replace(/\{[^{}]*["']躯体化["'][^{}]*\}/g, '')
+  // 匹配多行JSON对象
+  cleaned = cleaned.replace(/\{\s*\n[\s\S]*?"躯体化"[\s\S]*?\n\s*\}/g, '')
 
-  // ========== 8. 删除维度分数行 ==========
+  // ========== 3. 删除量化评估章节（精确匹配到下一章节） ==========
+  // Markdown 标题格式: ### 量化评估 ... 直到下一个同级或更高级标题
+  cleaned = cleaned.replace(/#{1,3}\s*量化评估[^]*?(?=\n#{1,3}\s|\n*$)/gi, '')
+
+  // 中文序号格式: 五、量化评估 ... 直到下一个中文序号
+  cleaned = cleaned.replace(
+    /[一二三四五六七八九十]+[、.．]\s*量化评估[^]*?(?=\n[一二三四五六七八九十]+[、.．]|\n*$)/gi,
+    '',
+  )
+  // ========== 4. 新增：删除从"以下删除"开始以及之后的所有内容 ==========
+  // 匹配包含"以下删除"的行，删除该行及之后所有内容
+  cleaned = cleaned.replace(/\n.*以下删除[\s\S]*/i, '')
+  // 如果"以下删除"出现在开头
+  cleaned = cleaned.replace(/^.*以下删除[\s\S]*/i, '')
+  // 阿拉伯数字序号格式: 5. 量化评估 ... 直到下一个数字序号
+  cleaned = cleaned.replace(/\d+[\.、．]\s*\**量化评估[^]*?(?=\n\d+[\.、．]|\n*$)/gi, '')
+
+  // ========== 4. 删除独立的分数列表行 ==========
   const dimensions = [
     '躯体化',
     '强迫症状',
@@ -695,21 +690,42 @@ const cleanDiagnosisSummary = (md: string | null | undefined): string => {
     '总均分',
     '阳性项目数',
     '阳性症状均分',
+    'somatization',
+    'obsessive',
+    'interpersonal',
+    'depression',
+    'anxiety',
+    'hostility',
+    'phobic',
+    'paranoid',
+    'psychoticism',
   ]
   const dimPattern = dimensions.join('|')
-  const dimRegex = new RegExp(`^.*(?:${dimPattern})\\s*[：:=]\\s*[\\d.]+.*$`, 'gm')
+
+  // 匹配 "- 躯体化: 2.5" 或 "躯体化：2.5" 这样的独立行
+  const dimRegex = new RegExp(`^\\s*[-*•]?\\s*(${dimPattern})\\s*[：:=→]\\s*[\\d.]+.*$`, 'gmi')
   cleaned = cleaned.replace(dimRegex, '')
 
-  // ========== 9. 删除提示性文字 ==========
-  cleaned = cleaned.replace(/请根据对话内容[\s\S]*?(?=\n\n|$)/gi, '')
-  cleaned = cleaned.replace(/并在回复的最后[\s\S]*?(?=\n\n|$)/gi, '')
-  cleaned = cleaned.replace(/以\s*JSON\s*格式[\s\S]*?(?=\n\n|$)/gi, '')
-  cleaned = cleaned.replace(/输出如下数据[\s\S]*?(?=\n\n|$)/gi, '')
-  cleaned = cleaned.replace(/重新评估[\s\S]*?(?=\n\n|$)/gi, '')
+  // ========== 5. 删除 SCL-90 相关的独立段落 ==========
+  // 只删除以 SCL-90 开头的独立行或段落标题，不删除正文中的引用
+  cleaned = cleaned.replace(/^#+\s*SCL-?90.*$/gm, '')
+  cleaned = cleaned.replace(/^\*\*SCL-?90[^*]*\*\*\s*$/gm, '')
+  cleaned = cleaned.replace(/^[-*]\s*SCL-?90.*$/gm, '')
 
-  // ========== 10. 清理格式 ==========
+  // ========== 6. 删除日期相关行 ==========
+  cleaned = cleaned.replace(/^.*(?:就诊|诊断|问诊|评估)日期\s*[：:].*/gm, '')
+
+  // ========== 7. 删除AI提示语 ==========
+  cleaned = cleaned.replace(/^.*请根据对话内容.*$/gm, '')
+  cleaned = cleaned.replace(/^.*以\s*JSON\s*格式.*$/gm, '')
+  cleaned = cleaned.replace(/^.*输出如下数据.*$/gm, '')
+
+  // ========== 8. 清理格式 ==========
+  // 删除连续空行（保留最多两个换行）
   cleaned = cleaned.replace(/\n{3,}/g, '\n\n')
-  cleaned = cleaned.replace(/^[\s]*[-*]\s*$/gm, '')
+  // 删除只有空白符或列表符号的行
+  cleaned = cleaned.replace(/^\s*[-*•]\s*$/gm, '')
+  // 删除开头和结尾的空白
   cleaned = cleaned.trim()
 
   return cleaned

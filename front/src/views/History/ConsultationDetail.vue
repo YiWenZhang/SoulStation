@@ -76,7 +76,7 @@
               <div class="meta-item">
                 <span class="meta-icon">📅</span>
                 <span class="meta-label">问诊日期</span>
-                <span class="meta-value">{{ detail.date }}</span>
+                <span class="meta-value">{{ detail.updated_at }}</span>
               </div>
               <div class="meta-item">
                 <span class="meta-icon">💬</span>
@@ -139,9 +139,9 @@
               </div>
             </div>
             <div class="advice-content">
-              <div v-if="detail.diagnosis_report" class="advice-text">
-                {{ detail.diagnosis_report }}
-              </div>
+                  <div v-if="detail.diagnosis_summary" class="advice-text">
+                    {{ detail.diagnosis_summary }}
+                  </div>
               <div v-else class="no-advice">
                 <div class="no-advice-icon">💭</div>
                 <p class="no-advice-text">本次问诊暂无总结建议</p>

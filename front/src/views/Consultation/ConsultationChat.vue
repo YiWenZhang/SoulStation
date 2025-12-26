@@ -36,7 +36,7 @@
               <p class="subtitle">
                 <span v-if="status === 'ongoing'" class="online-status">
                   <span class="pulse-dot"></span>
-                  正在对话中
+                  {{ isStreaming ? 'AI 正在回复...' : '正在对话中' }}
                 </span>
                 <span v-else class="offline-status">对话已结束</span>
               </p>
@@ -49,6 +49,7 @@
             v-if="status === 'ongoing'"
             class="action-btn finish-btn"
             @click="showConfirmDialog = true"
+            :disabled="isStreaming"
           >
             <span class="btn-icon">✓</span>
             <span class="btn-text">结束并生成报告</span>
@@ -105,23 +106,30 @@
             <div class="message-content">
               <div class="message-header">
                 <span class="sender-name">{{ msg.role === 'ai' ? 'AI 咨询师' : '我' }}</span>
-                <span class="message-time">{{ getCurrentTime() }}</span>
+                <span class="message-time">{{ msg.time || getCurrentTime() }}</span>
+                <!-- 流式输出指示器 -->
+                <span v-if="msg.role === 'ai' && msg.isStreaming" class="streaming-indicator">
+                  <span class="streaming-dot"></span>
+                  正在输入
+                </span>
               </div>
-              <div class="message-bubble" :class="msg.role">
+              <div class="message-bubble" :class="[msg.role, { streaming: msg.isStreaming }]">
                 <div
                   v-if="msg.role === 'ai'"
                   class="markdown-body"
                   v-html="renderMarkdown(msg.content)"
                 ></div>
                 <div v-else class="user-text">{{ msg.content }}</div>
+                <!-- 打字光标 -->
+                <span v-if="msg.isStreaming" class="typing-cursor">|</span>
               </div>
             </div>
           </div>
         </TransitionGroup>
 
-        <!-- AI 正在输入提示 -->
+        <!-- AI 正在输入提示（初始状态） -->
         <Transition name="typing-fade">
-          <div v-if="sending" class="typing-indicator">
+          <div v-if="sending && !isStreaming" class="typing-indicator">
             <div class="avatar-wrapper">
               <div class="avatar ai">🤖</div>
             </div>
@@ -150,6 +158,7 @@
               @keydown.enter.exact.prevent="handleSend"
               @keydown.enter.shift.exact="handleNewLine"
               class="message-input"
+              :disabled="sending || isStreaming"
             ></textarea>
             <div class="input-tools">
               <span class="char-count">{{ inputMessage.length }}/500</span>
@@ -158,10 +167,10 @@
           <button
             class="send-btn"
             @click="handleSend"
-            :disabled="!inputMessage.trim() || sending"
-            :class="{ active: inputMessage.trim() && !sending }"
+            :disabled="!inputMessage.trim() || sending || isStreaming"
+            :class="{ active: inputMessage.trim() && !sending && !isStreaming }"
           >
-            <span v-if="!sending" class="send-icon">
+            <span v-if="!sending && !isStreaming" class="send-icon">
               <svg viewBox="0 0 24 24" fill="none">
                 <path
                   d="M22 2L11 13M22 2L15 22L11 13M22 2L2 9L11 13"
@@ -178,6 +187,9 @@
         <div class="footer-tips">
           <span class="tip-item"> <kbd>Enter</kbd> 发送 </span>
           <span class="tip-item"> <kbd>Shift</kbd> + <kbd>Enter</kbd> 换行 </span>
+          <span v-if="isStreaming" class="tip-item streaming-tip">
+            <span class="streaming-icon">⚡</span> AI 正在生成回复...
+          </span>
         </div>
       </div>
 
@@ -323,7 +335,7 @@
 import { ref, onMounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { startConsultation, chatConsultation, finishConsultation } from '@/api/ai'
+import { startConsultation, finishConsultation, getChatStreamUrl } from '@/api/ai'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 
@@ -337,6 +349,8 @@ const viewHistory = () => router.push('/history')
 interface Message {
   role: 'user' | 'ai'
   content: string
+  time?: string
+  isStreaming?: boolean
 }
 
 const messages = ref<Message[]>([])
@@ -344,6 +358,7 @@ const inputMessage = ref('')
 const loading = ref(true)
 const sending = ref(false)
 const finishing = ref(false)
+const isStreaming = ref(false) // 新增：是否正在流式输出
 const status = ref<'ongoing' | 'finished'>('ongoing')
 const consultationId = ref<number>(0)
 const userAvatar = localStorage.getItem('avatar_url') || ''
@@ -352,6 +367,9 @@ const sessionStartTime = ref<Date>(new Date())
 const showConfirmDialog = ref(false)
 const showReportDialog = ref(false)
 const finalReport = ref('')
+
+// 当前流式输出的消息索引
+const currentStreamingIndex = ref<number>(-1)
 
 // 获取当前时间
 const getCurrentTime = () => {
@@ -406,7 +424,11 @@ const initConsultation = async () => {
     consultationId.value = 0
     const res = await startConsultation(reportId)
     consultationId.value = res.consultation_id
-    messages.value.push({ role: 'ai', content: res.message })
+    messages.value.push({
+      role: 'ai',
+      content: res.message,
+      time: getCurrentTime(),
+    })
     loading.value = false
     scrollToBottom()
   } catch (error) {
@@ -416,33 +438,143 @@ const initConsultation = async () => {
   }
 }
 
-// 2. 发送对话消息
+// 2. 发送对话消息 - 流式版本
 const handleSend = async () => {
   const content = inputMessage.value.trim()
-  if (!content || sending.value) return
+  if (!content || sending.value || isStreaming.value) return
 
-  messages.value.push({ role: 'user', content })
+  // 添加用户消息
+  messages.value.push({
+    role: 'user',
+    content,
+    time: getCurrentTime(),
+  })
   inputMessage.value = ''
   scrollToBottom()
   sending.value = true
 
-  try {
-    const res = await chatConsultation(consultationId.value, content)
-    messages.value.push({ role: 'ai', content: res.message })
+  // 添加一个空的 AI 消息，用于流式更新
+  const aiMessageIndex = messages.value.length
+  messages.value.push({
+    role: 'ai',
+    content: '',
+    time: getCurrentTime(),
+    isStreaming: true,
+  })
+  currentStreamingIndex.value = aiMessageIndex
 
-    if (res.status === 'finished') {
-      status.value = 'finished'
-      finalReport.value = res.report || ''
-      showReportDialog.value = true
-      ElMessage.success('问诊已完成，报告已生成')
+  try {
+    const response = await fetch(getChatStreamUrl(), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        consultation_id: consultationId.value,
+        content: content,
+      }),
+    })
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`)
     }
 
-    scrollToBottom()
+    const reader = response.body?.getReader()
+    const decoder = new TextDecoder()
+
+    if (!reader) {
+      throw new Error('无法获取响应流')
+    }
+
+    sending.value = false
+    isStreaming.value = true
+
+    let buffer = ''
+
+    while (true) {
+      const { done, value } = await reader.read()
+
+      if (done) {
+        console.log('Stream ended')
+        break
+      }
+
+      buffer += decoder.decode(value, { stream: true })
+
+      // 处理 SSE 数据，按行分割
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || '' // 保留最后一个可能不完整的行
+
+      for (const line of lines) {
+        const trimmedLine = line.trim()
+        if (trimmedLine.startsWith('data: ')) {
+          const jsonStr = trimmedLine.slice(6) // 去掉 'data: ' 前缀
+
+          if (!jsonStr) continue
+
+          try {
+            const data = JSON.parse(jsonStr)
+
+            switch (data.type) {
+              case 'message':
+                // 追加消息内容
+                if (messages.value[aiMessageIndex]) {
+                  messages.value[aiMessageIndex].content += data.content
+                  // 每次更新后滚动到底部
+                  scrollToBottom()
+                }
+                break
+
+              case 'finished':
+                // 对话结束，AI 主动结束
+                status.value = 'finished'
+                if (typeof data.content === 'object') {
+                  finalReport.value = data.content?.report || data.content?.summary || ''
+                } else {
+                  finalReport.value = data.content || ''
+                }
+                showReportDialog.value = true
+                ElMessage.success('问诊已完成，报告已生成')
+                break
+
+              case 'error':
+                ElMessage.error(data.content || '发生错误')
+                break
+
+              case 'done':
+                // 流结束
+                console.log('Received done signal')
+                break
+            }
+          } catch (e) {
+            console.error('解析 SSE 数据失败:', e, jsonStr)
+          }
+        }
+      }
+    }
+
+    // 流结束，标记消息不再是流式状态
+    if (messages.value[aiMessageIndex]) {
+      messages.value[aiMessageIndex].isStreaming = false
+    }
   } catch (error) {
     console.error('对话失败', error)
     ElMessage.error('发送失败，请检查网络')
+
+    // 移除空的 AI 消息或标记错误
+    if (messages.value[aiMessageIndex]) {
+      if (messages.value[aiMessageIndex].content === '') {
+        messages.value.splice(aiMessageIndex, 1)
+      } else {
+        messages.value[aiMessageIndex].isStreaming = false
+        messages.value[aiMessageIndex].content += '\n\n[连接中断，请重试]'
+      }
+    }
   } finally {
     sending.value = false
+    isStreaming.value = false
+    currentStreamingIndex.value = -1
+    scrollToBottom()
   }
 }
 
@@ -452,15 +584,18 @@ const handleConfirmFinish = async () => {
   try {
     const res = await finishConsultation(consultationId.value)
     status.value = 'finished'
-    finalReport.value = res.report || ''
+    // 优先使用 data.report_preview，其次使用 report
+    finalReport.value = res.data?.report_preview || res.report || ''
     showConfirmDialog.value = false
     showReportDialog.value = true
     messages.value.push({
       role: 'ai',
       content:
         '**[系统消息]** 对话已结束，感谢您的信任。您可以查看上方生成的完整诊断报告。如有需要，可随时发起新的问诊。',
+      time: getCurrentTime(),
     })
     scrollToBottom()
+    ElMessage.success('问诊已结束，报告已生成')
   } catch (error) {
     console.error('结束问诊失败', error)
     ElMessage.error('结束问诊失败，请重试')
@@ -777,6 +912,11 @@ onMounted(() => {
   transition: all 0.3s;
 }
 
+.action-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .finish-btn {
   background: linear-gradient(135deg, #ef5350, #f44336);
   color: white;
@@ -787,7 +927,7 @@ onMounted(() => {
   color: white;
 }
 
-.action-btn:hover {
+.action-btn:hover:not(:disabled) {
   transform: translateY(-2px);
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
 }
@@ -1059,6 +1199,38 @@ onMounted(() => {
   color: #b0bec5;
 }
 
+/* 流式输出指示器 */
+.streaming-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #00897b;
+  background: rgba(0, 137, 123, 0.1);
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+.streaming-dot {
+  width: 6px;
+  height: 6px;
+  background: #00897b;
+  border-radius: 50%;
+  animation: streamingPulse 1s ease-in-out infinite;
+}
+
+@keyframes streamingPulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.5;
+    transform: scale(0.8);
+  }
+}
+
 .message-row.user .message-header {
   flex-direction: row-reverse;
 }
@@ -1077,6 +1249,11 @@ onMounted(() => {
   box-shadow: 0 4px 15px rgba(0, 0, 0, 0.04);
 }
 
+.message-bubble.ai.streaming {
+  border-color: rgba(0, 137, 123, 0.3);
+  box-shadow: 0 4px 20px rgba(0, 137, 123, 0.1);
+}
+
 .message-bubble.user {
   background: linear-gradient(135deg, #00897b, #26a69a);
   color: white;
@@ -1087,6 +1264,26 @@ onMounted(() => {
 .message-bubble:hover {
   transform: translateY(-2px);
   box-shadow: 0 8px 25px rgba(0, 0, 0, 0.08);
+}
+
+/* 打字光标 */
+.typing-cursor {
+  display: inline-block;
+  color: #00897b;
+  font-weight: bold;
+  animation: cursorBlink 0.8s steps(1) infinite;
+  margin-left: 2px;
+}
+
+@keyframes cursorBlink {
+  0%,
+  50% {
+    opacity: 1;
+  }
+  51%,
+  100% {
+    opacity: 0;
+  }
 }
 
 .user-text {
@@ -1245,6 +1442,11 @@ onMounted(() => {
   box-shadow: 0 0 0 4px rgba(0, 137, 123, 0.1);
 }
 
+.message-input:disabled {
+  background: #f5f5f5;
+  cursor: not-allowed;
+}
+
 .message-input::placeholder {
   color: #b0bec5;
 }
@@ -1325,6 +1527,25 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+.streaming-tip {
+  color: #00897b;
+  font-weight: 500;
+}
+
+.streaming-icon {
+  animation: flash 1s ease-in-out infinite;
+}
+
+@keyframes flash {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
 }
 
 kbd {

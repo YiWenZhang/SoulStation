@@ -4,6 +4,7 @@ from ..extensions import db
 from ..models import AssessmentReport, AIConsultation, AssessmentSession
 from ..utils.prompt_builder import PromptBuilder
 from ..utils.ai_client import AIClient
+from ..services.consultation_service import ConsultationService
 
 # 创建独立的 Blueprint
 # 注意：url_prefix 设置为 '/api/consultation'
@@ -82,6 +83,31 @@ def start_consultation():
 
     if not report_id:
         return jsonify({'error': 'Missing report_id'}), 400
+
+    # 1. 【新增逻辑】查找是否存在该报告的“进行中”问诊
+    # 判定标准：diagnosis_summary 为空表示 AI 还没给出最终总结，问诊仍在进行
+    existing_consultation = AIConsultation.query.filter_by(
+        report_id=report_id,
+        diagnosis_summary=None  # 或者根据你定义的 consultation_status == 'ongoing'
+    ).order_by(AIConsultation.updated_at.desc()).first()
+
+    if existing_consultation:
+        # 如果找到了，直接返回已有的 ID 和最后一条 AI 回复（从 chat_history 提取）
+        history = existing_consultation.chat_history
+        last_ai_message = ""
+        # 寻找历史记录中最后一条 assistant 的话作为开场回复
+        for msg in reversed(history):
+            if msg['role'] == 'assistant':
+                last_ai_message = msg['content']
+                break
+
+        return jsonify({
+            'consultation_id': existing_consultation.id,
+            'sequence_number': existing_consultation.sequence_number,
+            'message': last_ai_message or "欢迎回来，我们继续之前的问诊。",
+            'status': 'ongoing',
+            'is_resume': True  # 告知前端这是“恢复”而不是“新开启”
+        })
 
     report = AssessmentReport.query.get(report_id)
     if not report:
@@ -180,7 +206,7 @@ def chat_consultation():
             consultation.report.consultation_status = 'completed'
 
             response_data['status'] = 'finished'
-            response_data['report'] = summary
+            response_data['consultation_id'] = consultation_id
 
         db.session.commit()
         return jsonify(response_data)
@@ -210,12 +236,12 @@ def finish_consultation():
     if consultation.diagnosis_summary:
         return jsonify({
             'status': 'finished',
-            'report': consultation.diagnosis_summary
+            'consultation_id': consultation.id  # 修改：返回 ID
         })
 
     try:
         # 强制总结
-        summary = _generate_diagnosis_summary(consultation.chat_history, manual=True)
+        summary = _generate_diagnosis_summary(consultation.chat_history, consultation, manual=True)
 
         consultation.diagnosis_summary = summary
         consultation.report.consultation_status = 'completed'
@@ -224,7 +250,7 @@ def finish_consultation():
         return jsonify({
             'status': 'finished',
             'message': '问诊已结束',
-            'report': summary
+            'consultation_id': consultation.id  # 修改：返回 ID
         })
 
     except Exception as e:
@@ -233,9 +259,69 @@ def finish_consultation():
 
 
 # ==========================================
+# 【新增】获取问诊详细结果 (用于报告展示和历史复用)
+# GET /api/consultation/detail/<int:consultation_id>
+# ==========================================
+@ai_bp.route('/detail/<int:consultation_id>', methods=['GET'])
+def get_consultation_detail(consultation_id):
+    """
+    获取 AI 问诊的完整详细结果
+    包含：初始分数、AI 修正分数、分数变化幅度、MD 总结及风险等级
+    """
+    try:
+        # 1. 查询问诊记录及其关联的原始报告
+        consultation = AIConsultation.query.get(consultation_id)
+
+        if not consultation:
+            return jsonify({'code': 404, 'msg': '未找到该问诊记录'}), 404
+
+        # 获取关联的原始报告数据
+        report = consultation.report
+
+        # 2. 构造响应数据
+        result_data = {
+            "id": consultation.id,
+            "report_id": consultation.report_id,
+            "sequence_number": consultation.sequence_number,
+
+            # --- 核心内容 ---
+            "diagnosis_summary": consultation.diagnosis_summary,  # MD 总结结论
+
+            # --- 分数对比数据 ---
+            # 原始问卷的雷达图分数
+            "initial_scores": report.radar_data if report else [],
+            # AI 问诊后修正的维度分数
+            "final_scores": consultation.final_scores,
+            # 相比初始分数的变化幅度 (由 ConsultationService 计算)
+            "score_changes": consultation.score_changes,
+
+            # --- 风险等级对比 ---
+            "initial_risk_level": report.risk_level if report else None,
+            "final_risk_level": consultation.final_risk_level,  #
+
+            # --- 状态与时间 ---
+            "status": "finished" if consultation.diagnosis_summary else "ongoing",
+            "updated_at": consultation.updated_at.strftime('%Y-%m-%d %H:%M'),
+
+            # 如果前端需要重新渲染对话，可以带上历史记录
+            "chat_history": consultation.chat_history
+        }
+
+        return jsonify({
+            "code": 200,
+            "msg": "获取成功",
+            "data": result_data
+        })
+
+    except Exception as e:
+        current_app.logger.error(f"Get consultation detail failed: {str(e)}")
+        return jsonify({'code': 500, 'msg': f"服务器错误: {str(e)}"}), 500
+
+
+# ==========================================
 # 4. 内部辅助函数
 # ==========================================
-def _generate_diagnosis_summary(chat_history, manual=False):
+def _generate_diagnosis_summary(chat_history, consultation,manual=False):
     """提取对话生成病历"""
     conversation_text = ""
     for msg in chat_history:
@@ -257,9 +343,19 @@ def _generate_diagnosis_summary(chat_history, manual=False):
 {"4. **备注**：由于患者主动中断了问诊，以上结论可能基于不完整信息。" if manual else ""}
 
 请直接输出 Markdown 内容。
+
+【量化评估要求】
+    请根据对话内容，重新评估 SCL-90 各维度的当前分数（1.0-5.0，保留两位小数）。
+    并在回复的最后，以 JSON 格式输出如下数据：
+    {{
+      "scores": {{ "躯体化": 1.5, "抑郁": 3.2, ... }}
+    }}
 """
     messages = [
         {"role": "system", "content": "你是一名心理医生助理。"},
         {"role": "user", "content": prompt_content}
     ]
-    return ai_client.get_response(messages)
+    ai_raw_response = ai_client.get_response(messages)
+    ConsultationService.update_consultation_data(consultation, ai_raw_response)
+
+    return ai_raw_response

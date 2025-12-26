@@ -426,12 +426,19 @@ def submit_assessment():
     total_score = sum(valid_scores_list) if valid_scores_list else 0
     total_avg = round(total_score / len(valid_scores_list), 2) if valid_scores_list else 0
 
-    # E. 判定总体风险等级 (业务规则)
-    risk_level = 'good'
-    if len(high_risk_dims) >= 3:  # 3个以上维度异常 -> 严重
+
+    # E. 判定总体风险等级 (优化后的逻辑)
+    max_factor_score = max(radar_data.values()) if radar_data else 0
+
+    if max_factor_score >= 3.0:
         risk_level = 'severe'
-    elif len(high_risk_dims) > 0:  # 任意维度异常 -> 中度
+        summary_short = f"检测到{len([s for s in radar_data.values() if s >= 3.0])}项重度症状"
+    elif max_factor_score >= 2.0:
         risk_level = 'moderate'
+        summary_short = f"{len(high_risk_dims)}个维度存在中轻度风险"
+    else:
+        risk_level = 'good'
+        summary_short = "心理状态良好"
 
     # F. 生成极简摘要 (仅作列表展示用，非报告正文)
     summary_short = "心理状态良好"

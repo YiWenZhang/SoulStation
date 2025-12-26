@@ -62,40 +62,49 @@ class PromptBuilder:
 
     def _build_patient_status(self, report):
         """
-        核心逻辑：不仅给 AI 分数，还要去 AssessmentRule 查具体的症状描述
+        核心逻辑：基于最高分原则，为 AI 提供精准的风险定性
         """
-        status_lines = [
-            f"总分：{report.total_score}",
-            f"风险等级：{report.risk_level}",
-            "--- 详细维度症状 ---"
-        ]
-
-        # 解析雷达图数据 (假设是 [{"subject": "抑郁", "value": 3.5}, ...] 或英文 key)
-        # 注意：这里需要根据你实际存入 report.radar_data 的格式进行微调
-        if not report.radar_data:
+        radar_list = report.radar_data if isinstance(report.radar_data, list) else []
+        if not radar_list:
             return "暂无详细维度数据"
 
-        radar_list = report.radar_data if isinstance(report.radar_data, list) else []
+        status_lines = []
+        max_score = 0.0
+        detailed_status = []
 
         for item in radar_list:
-            # 兼容前端可能传 "subject" (中文) 或 "name" (英文)
-            key = item.get('name') or item.get('subject')  # 比如 'depression' 或 '抑郁'
+            key = item.get('name') or item.get('subject')
             score = float(item.get('value') or item.get('score', 0))
+            max_score = max(max_score, score)
 
-            # 1. 尝试获取中文维度名
-            cn_dim_name = self.DIMENSION_MAPPING.get(key, key)  # 如果本身是中文就用本身
+            cn_dim_name = self.DIMENSION_MAPPING.get(key, key)
 
-            # 2. 计算等级 (1-5) 用于查表
-            # 简单算法：直接四舍五入或向下取整，这里采用简单的区间判断
-            level = int(score)
-            if level < 1: level = 1
-            if level > 5: level = 5
+            # --- 优化点：根据科学区间判定 level ---
+            # 假设数据库 AssessmentRule 的 level 1=正常, 2=中轻度, 3=高风险/重度
+            if score >= 3.0:
+                level = 3  # 高风险
+                risk_tag = "【!!高风险/重度!!】"
+            elif score >= 2.0:
+                level = 2  # 中度
+                risk_tag = "【中轻度关注】"
+            else:
+                level = 1  # 正常
+                risk_tag = "【正常】"
 
-            # 3. 【关键】去数据库查规则文案
+            # 去数据库查规则文案
             rule = AssessmentRule.query.filter_by(dimension_name=cn_dim_name, level=level).first()
+            desc = rule.description if rule else "存在相关症状困扰"
 
-            desc = rule.description if rule else "存在一定程度的困扰"
-            status_lines.append(f"- {cn_dim_name} (得分{score:.1f}): {desc}")
+            detailed_status.append(f"- {cn_dim_name} (得分{score:.2f}): {risk_tag} {desc}")
+
+        # --- 优化点：在头部显式告知 AI 总体结论，防止 AI 误判 ---
+        status_lines.append(f"### 测评概况")
+        status_lines.append(f"总体风险等级：{report.risk_level.upper()}")  # 'severe'/'moderate'/'good'
+        status_lines.append(f"最高因子分：{max_score:.2f}")
+        status_lines.append(
+            f"风险解读：{'发现重度症状，需立即重点干预' if max_score >= 3.0 else '发现中轻度困扰，建议引导疏导' if max_score >= 2.0 else '心理状态基本良好'}")
+        status_lines.append("\n### 详细维度分析")
+        status_lines.extend(detailed_status)
 
         return "\n".join(status_lines)
 

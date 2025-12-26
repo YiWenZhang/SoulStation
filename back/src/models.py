@@ -291,6 +291,16 @@ class AIConsultation(db.Model):
     chat_history = db.Column(JSON, default=list, comment='本次问诊的对话记录')
     diagnosis_summary = db.Column(MEDIUMTEXT, comment='本次AI生成的诊断总结与建议')
 
+    # --- 【新增字段】用于存储量化数据 ---
+    # 存储 AI 修正后的维度分数，例如：{"抑郁": 3.25, "焦虑": 2.10, ...}
+    final_scores = db.Column(db.JSON, nullable=True)
+    # 存储对比初始问卷的分数变化，例如：{"抑郁": 0.5, "焦虑": -0.2, ...}
+    score_changes = db.Column(db.JSON, nullable=True)
+    # 存储 AI 问诊后最终判定的风险等级：'good', 'moderate', 'severe'
+    final_risk_level = db.Column(db.String(20), nullable=True)
+    # 存储 AI 评估的百分比/好转率等描述性统计
+    improvement_rate = db.Column(db.Float, nullable=True)
+
     current_step = db.Column(db.Integer, default=0)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

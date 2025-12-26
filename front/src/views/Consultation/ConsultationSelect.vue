@@ -156,7 +156,7 @@ const startConsultation = () => {
   // 这里的逻辑是：带着 report_id 去创建一个新的对话 Session
   router.push({
     name: 'consultationChat',
-    params: { reportId: 2 },
+    params: { reportId: selectedId.value },
   })
 }
 </script>

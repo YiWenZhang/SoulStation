@@ -417,8 +417,8 @@ def submit_assessment():
         avg_score = round(sum(scores_list) / len(scores_list), 2)
         radar_data[dim] = avg_score
 
-        # 判定风险：因子分 >= 3
-        if avg_score >= 3.0:
+        # 判定风险：因子分 >= 2
+        if avg_score >= 2.0:
             high_risk_dims.append(dim)
 
     # D. 计算全局总分
@@ -428,9 +428,9 @@ def submit_assessment():
 
     # E. 判定总体风险等级 (业务规则)
     risk_level = 'good'
-    if len(high_risk_dims) >= 5:  # 3个以上维度异常 -> 严重
+    if len(high_risk_dims) >= 3:  # 3个以上维度异常 -> 严重
         risk_level = 'severe'
-    elif len(high_risk_dims) >= 2:  # 任意维度异常 -> 中度
+    elif len(high_risk_dims) > 0:  # 任意维度异常 -> 中度
         risk_level = 'moderate'
 
     # F. 生成极简摘要 (仅作列表展示用，非报告正文)

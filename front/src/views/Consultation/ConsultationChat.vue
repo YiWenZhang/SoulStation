@@ -142,6 +142,7 @@ const scrollToBottom = async () => {
 // 1. 初始化发起问诊
 const initConsultation = async () => {
   try {
+    consultationId.value = 0
     const res = await startConsultation(reportId)
     consultationId.value = res.consultation_id
     messages.value.push({ role: 'ai', content: res.message })
@@ -209,6 +210,7 @@ const handleFinish = () => {
 }
 
 onMounted(() => {
+  console.log('当前路由获取的报告ID:', reportId)
   initConsultation()
 })
 </script>

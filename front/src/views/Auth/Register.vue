@@ -36,26 +36,7 @@
           />
         </div>
 
-        <div class="form-group checkbox-group">
-          <label class="checkbox-label">
-            <input type="checkbox" v-model="isAdmin" @change="handleAdminChange" />
-            注册为管理员
-          </label>
-        </div>
-
-        <div class="form-group" v-if="isAdmin" :class="{ 'admin-key-group': isAdmin }">
-          <label for="adminKey">管理员密钥</label>
-          <input
-            type="text"
-            id="adminKey"
-            v-model="adminKey"
-            placeholder="请输入管理员密钥"
-            required
-          />
-        </div>
-
         <div v-if="error" class="error-message">{{ error }}</div>
-        <!-- 新增：注册成功提示（可选，替代alert的更友好样式） -->
         <div v-if="success" class="success-message">{{ success }}</div>
 
         <button type="submit" class="auth-button" :disabled="authStore.loading">
@@ -77,70 +58,46 @@
 import { ref } from 'vue'
 import { useAuthStore } from '../../stores/auth'
 import { useRouter } from 'vue-router'
-// 导入注册参数类型（和auth.ts保持一致）
+
+// 注册参数类型
 interface RegisterUserData {
   phone: string
   password: string
   nickname: string
-  role?: 'admin'
-  admin_key?: string
 }
 
 const authStore = useAuthStore()
-const router = useRouter() // 新增：导入路由实例
+const router = useRouter()
 const phone = ref('')
 const nickname = ref('')
 const password = ref('')
-const isAdmin = ref(false)
-const adminKey = ref('')
 const error = ref('')
-const success = ref('') // 新增：注册成功提示文本
-
-const handleAdminChange = (e: Event) => {
-  isAdmin.value = (e.target as HTMLInputElement).checked
-  if (!isAdmin.value) {
-    adminKey.value = ''
-  }
-}
+const success = ref('')
 
 const handleRegister = async () => {
   error.value = ''
   success.value = ''
 
-  // 基本验证
-  if (isAdmin.value && !adminKey.value) {
-    error.value = '请输入管理员密钥'
-    return
-  }
-
   try {
-    // 修复：替换any为明确的RegisterUserData类型
     const userData: RegisterUserData = {
       phone: phone.value,
       password: password.value,
       nickname: nickname.value,
     }
 
-    // 如果是管理员注册，添加角色和密钥
-    if (isAdmin.value) {
-      userData.role = 'admin'
-      userData.admin_key = adminKey.value
-    }
-
     // 调用注册接口
     const response = await authStore.register(userData)
-    // 注册成功判断（根据后端返回的code）
+
+    // 注册成功判断
     if (response.code === 200) {
       success.value = '注册成功！即将为您跳转到登录页...'
-      // 延迟1.5秒跳转，让用户看到提示
+      // 延迟1.5秒跳转
       setTimeout(() => {
         router.push('/login')
-        // 跳转后清空表单（可选）
+        // 清空表单
         phone.value = ''
         nickname.value = ''
         password.value = ''
-        adminKey.value = ''
-        isAdmin.value = false
       }, 1500)
     }
   } catch (err) {
@@ -150,9 +107,7 @@ const handleRegister = async () => {
 }
 </script>
 
-<!-- 新增全局样式重置（和登录页保持一致） -->
 <style>
-/* 强制重置全局默认样式，确保全屏撑满 */
 html,
 body {
   margin: 0 !important;
@@ -176,7 +131,6 @@ body {
 
 <style scoped>
 .auth-container {
-  /* 核心修改：视口单位+强制撑满，解决全屏问题 */
   height: 100vh;
   width: 100vw;
   display: flex;
@@ -185,7 +139,7 @@ body {
   align-items: center;
   background: linear-gradient(135deg, #e0f7fa 0%, #b2ebf2 100%);
   padding: 20px 15px;
-  margin: 0 !important; /* 强制清零margin，解决偏左问题 */
+  margin: 0 !important;
   overflow: hidden;
   box-sizing: border-box;
 }
@@ -197,8 +151,8 @@ body {
   border-radius: 12px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
   padding: 30px;
-  margin: 0 auto; /* 兜底居中，兼容所有浏览器 */
-  box-sizing: border-box; /* 防止padding撑大卡片 */
+  margin: 0 auto;
+  box-sizing: border-box;
 }
 
 .auth-header {
@@ -210,20 +164,20 @@ body {
   color: #00897b;
   margin-bottom: 10px;
   font-size: 28px;
-  margin-top: 0; /* 清除默认margin */
+  margin-top: 0;
 }
 
 .auth-header p {
   color: #546e7a;
   font-size: 16px;
-  margin: 0; /* 清除默认margin */
+  margin: 0;
 }
 
 .auth-form {
   display: flex;
   flex-direction: column;
   gap: 20px;
-  margin: 0; /* 清除默认margin */
+  margin: 0;
 }
 
 .form-group {
@@ -250,41 +204,6 @@ body {
   outline: none;
   border-color: #00acc1;
   box-shadow: 0 0 0 3px rgba(0, 172, 193, 0.2);
-}
-
-.checkbox-group {
-  flex-direction: row;
-  align-items: center;
-  margin-top: 10px;
-}
-
-.checkbox-label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
-  color: #546e7a;
-}
-
-.checkbox-label input {
-  width: 18px;
-  height: 18px;
-  accent-color: #00897b;
-}
-
-.admin-key-group {
-  animation: fadeIn 0.3s ease;
-}
-
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(-10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
 }
 
 .auth-button {
@@ -315,10 +234,9 @@ body {
   padding: 10px;
   background-color: #ffebee;
   border-radius: 6px;
-  margin: 0; /* 清除默认margin */
+  margin: 0;
 }
 
-/* 新增：注册成功提示样式 */
 .success-message {
   color: #43a047;
   font-size: 14px;
@@ -328,6 +246,17 @@ body {
   border-radius: 6px;
   margin: 0;
   animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .auth-link {
@@ -350,14 +279,13 @@ body {
   margin-top: 30px;
   color: #546e7a;
   font-size: 14px;
-  text-align: center; /* 确保版权信息居中 */
+  text-align: center;
 }
 
 .auth-footer p {
-  margin: 0; /* 清除默认margin */
+  margin: 0;
 }
 
-/* 小屏幕适配（可选） */
 @media (max-width: 480px) {
   .auth-card {
     padding: 20px;

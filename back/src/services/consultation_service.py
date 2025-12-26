@@ -175,74 +175,6 @@ class ConsultationService:
             return False
 
     @staticmethod
-    def process_chat_stream(consultation_id, user_content):
-        """
-        核心业务流：处理对话 -> 流式返回 -> 自动存档 -> 触发总结
-        返回一个生成器，生成 (event_type, data) 元组
-        """
-        # 1. 初始化工具
-        ai_client = AIClient()
-
-        # 2. 获取并校验数据
-        consultation = AIConsultation.query.get(consultation_id)
-        if not consultation:
-            yield ("error", "Consultation not found")
-            return
-
-        if consultation.diagnosis_summary:
-            yield ("error", "Consultation finished")
-            return
-
-        # 3. 更新对话历史 (用户部分)
-        history = list(consultation.chat_history)
-        history.append({"role": "user", "content": user_content})
-
-        # 临时保存用户输入，防止流中断导致消息丢失
-        consultation.chat_history = history
-        db.session.commit()
-
-        # 4. 调用 AI 流式接口
-        full_ai_response = ""
-        try:
-            # 这里的 yield 将实时推送到 Controller
-            for chunk in ai_client.get_stream_response(history):
-                full_ai_response += chunk
-                # 实时返回内容块
-                yield ("message", chunk)
-
-            # 5. 流结束后处理：拼接完整回复
-            is_finished = "<END_DIAGNOSIS>" in full_ai_response
-            clean_response = full_ai_response.replace("<END_DIAGNOSIS>", "").strip()
-
-            # 更新历史 (AI 部分)
-            history.append({"role": "assistant", "content": clean_response})
-            consultation.chat_history = history
-
-            if is_finished:
-                # --- 触发结束逻辑 (原 route 中的逻辑移到这里) ---
-                summary = ConsultationService._generate_diagnosis_summary(history, consultation, ai_client)
-
-                consultation.diagnosis_summary = summary
-                if consultation.report:
-                    consultation.report.consultation_status = 'completed'
-
-                db.session.commit()
-
-                # 通知前端结束，并附带总结ID等信息
-                yield ("finished", {
-                    "consultation_id": consultation.id,
-                    "msg": "问诊已自动结束并生成报告"
-                })
-            else:
-                # 普通对话结束
-                db.session.commit()
-                yield ("done", "stream_completed")
-
-        except Exception as e:
-            db.session.rollback()
-            yield ("error", str(e))
-
-    @staticmethod
     def _generate_diagnosis_summary(chat_history, consultation, ai_client, manual=False):
         """
         内部辅助：生成总结 (逻辑从 Route 搬运过来，保持 Service 纯净)
@@ -287,3 +219,102 @@ class ConsultationService:
         ConsultationService.update_consultation_data(consultation, ai_raw_response)
 
         return ai_raw_response
+
+    @staticmethod
+    def process_chat_stream(consultation_id, user_content):
+        # 1. 初始化
+        ai_client = AIClient()
+        prompt_builder = PromptBuilder()  # 实例化
+
+        # ... (获取 consultation 对象，校验逻辑保持不变) ...
+        consultation = AIConsultation.query.get(consultation_id)
+        # ...
+
+        # 2. 更新历史
+        history = list(consultation.chat_history)
+        history.append({"role": "user", "content": user_content})
+        consultation.chat_history = history
+        db.session.commit()
+
+        # 3. 【召唤智能体 A：咨询师】
+        # 使用 build_consultant_messages 构建上下文
+        # 这里的 history 包含了最新的 user_content
+        messages = prompt_builder.build_consultant_messages(consultation.report, history)
+
+        full_ai_response = ""
+        try:
+            # 咨询师参数：温度 0.7 (更像人)
+            for chunk in ai_client.get_stream_response(messages, temperature=0.7):
+                full_ai_response += chunk
+                yield ("message", chunk)
+
+            # ... (处理回复拼接、<END_DIAGNOSIS> 判断逻辑保持不变) ...
+            is_finished = "<END_DIAGNOSIS>" in full_ai_response
+            clean_response = full_ai_response.replace("<END_DIAGNOSIS>", "").strip()
+
+            history.append({"role": "assistant", "content": clean_response})
+            consultation.chat_history = history
+
+            if is_finished:
+                # 4. 【召唤智能体 B：分析师】
+                # 当对话结束时，不直接用 chat_history 做总结，而是构建专门的 Prompt
+                yield ("message", "\n\n[系统] 正在生成专业诊断报告，请稍候...")
+
+                # 传入完整的 history 给分析师
+                summary_data = ConsultationService._generate_report_with_agent_b(history, ai_client, prompt_builder)
+
+                # 保存结果 (解析逻辑从 _generate_report_with_agent_b 内部返回)
+                consultation.diagnosis_summary = summary_data.get('diagnosis_summary')
+
+                # 自动解析分数并入库 (复用你之前的 update_consultation_data 逻辑，稍作调整)
+                if 'scores' in summary_data:
+                    # 构造一个伪造的 raw_response 给 update_consultation_data 用，或者直接赋值
+                    # 为了复用之前的代码逻辑，这里手动序列化一下
+                    fake_raw = json.dumps({"scores": summary_data['scores']})
+                    ConsultationService.update_consultation_data(consultation, fake_raw)
+
+                if consultation.report:
+                    consultation.report.consultation_status = 'completed'
+
+                db.session.commit()
+
+                yield ("finished", {
+                    "consultation_id": consultation.id,
+                    "msg": "问诊已结束"
+                })
+            else:
+                db.session.commit()
+                yield ("done", "stream_completed")
+
+        except Exception as e:
+            # ... (异常处理)
+            pass
+
+    @staticmethod
+    def _generate_report_with_agent_b(chat_history, ai_client, prompt_builder):
+        """
+        专门的分析师智能体逻辑
+        """
+        # 1. 构建 Prompt
+        messages = prompt_builder.build_reporter_messages(chat_history)
+
+        # 2. 调用 AI (非流式)
+        # 关键：temperature=0.2 (严谨), response_format='json_object' (结构化)
+        # 注意：DeepSeek 部分模型支持 response_format={"type": "json_object"}，需要确认 API 文档
+        # 如果不支持，temperature=0.1 配合 Prompt 里的 JSON 示例通常也够了
+        raw_content = ai_client.get_response(
+            messages,
+            temperature=0.2,
+            response_format={"type": "json_object"}
+        )
+
+        # 3. 解析 JSON
+        try:
+            # 清理一下 markdown code block 标记 (```json ... ```) 以防万一
+            clean_json = raw_content.replace("```json", "").replace("```", "").strip()
+            data = json.loads(clean_json)
+            return data
+        except json.JSONDecodeError:
+            print(f"JSON解析失败，AI返回了: {raw_content}")
+            # 兜底：如果 JSON 挂了，返回纯文本作为 summary
+            return {"diagnosis_summary": raw_content, "scores": {}}

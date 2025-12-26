@@ -22,62 +22,52 @@ class AIClient:
         # 初始化 OpenAI 客户端 (支持兼容 OpenAI 协议的其他模型，如 DeepSeek)
         return OpenAI(api_key=api_key, base_url=base_url)
 
-    def get_response(self, messages, temperature=0.7):
+    def get_response(self, messages, **kwargs):
         """
-        发送消息给大模型并获取回复
-
-        :param messages: 对话历史列表, e.g. [{"role": "user", "content": "..."}]
-        :param temperature: 随机度 (0-1)，默认 0.7
-        :return: AI 的回复文本 (str)
-        """
-        client = self._get_client()
-        model = current_app.config.get("AI_MODEL_NAME", "deepseek-chat")  # 默认值兜底
-
-        try:
-            # 发起请求
-            response = client.chat.completions.create(
-                model=model,
-                messages=messages,
-                temperature=temperature
-            )
-
-            # 获取内容
-            content = response.choices[0].message.content
-
-            # (可选) 可以在这里打印日志方便调试
-            # print(f">>> AI Response: {content[:50]}...")
-
-            return content
-
-        except Exception as e:
-            # 记录错误日志
-            current_app.logger.error(f"AI Service Error: {str(e)}")
-            # 这里的异常建议抛出，交给 API 层去捕获并返回 500 错误给前端
-            raise e
-
-    def get_stream_response(self, messages, temperature=0.7):
-        """
-        流式生成回复 (Generator)
+        普通对话 (用于生成报告)
+        支持传入 temperature, response_format 等参数
         """
         client = self._get_client()
         model = current_app.config.get("AI_MODEL_NAME", "deepseek-chat")
 
+        # 提取参数，设置默认值
+        temperature = kwargs.get('temperature', 0.7)
+        response_format = kwargs.get('response_format', None)  # 新增：支持 JSON 模式
+
         try:
-            # stream=True 是关键
+            response = client.chat.completions.create(
+                model=model,
+                messages=messages,
+                temperature=temperature,
+                response_format=response_format,  # 关键：传给大模型
+                stream=False
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            current_app.logger.error(f"AI Service Error: {str(e)}")
+            raise e
+
+    # 2. 流式方法也同步升级
+    def get_stream_response(self, messages, **kwargs):
+        """
+        流式对话 (用于问诊聊天)
+        """
+        client = self._get_client()
+        model = current_app.config.get("AI_MODEL_NAME", "deepseek-chat")
+
+        temperature = kwargs.get('temperature', 0.7)
+
+        try:
             response = client.chat.completions.create(
                 model=model,
                 messages=messages,
                 temperature=temperature,
                 stream=True
             )
-
             for chunk in response:
                 content = chunk.choices[0].delta.content
-                # 过滤掉 None 或空字符串
                 if content:
                     yield content
-
         except Exception as e:
             current_app.logger.error(f"AI Stream Error: {str(e)}")
-            # 在流式中抛出异常比较特殊，通常前端会断开
             raise e

@@ -1,4 +1,4 @@
-<!-- views/Report/CombinedReportView.vue -->
+<!-- views/History/CombinedReportView.vue -->
 <template>
   <div class="report-container">
     <!-- 背景装饰 -->
@@ -27,8 +27,8 @@
           <h1 class="page-title">
             <span class="title-icon">{{ hasConsultation ? '🩺' : '📋' }}</span>
             {{ hasConsultation ? '综合诊断报告' : '心理健康测评报告' }}
-            <span class="title-badge" :class="riskClass" v-if="reportData">
-              {{ riskLabel }}
+            <span class="title-badge" :class="displayRiskClass" v-if="reportData">
+              {{ displayRiskLabel }}
             </span>
           </h1>
           <p class="page-subtitle">
@@ -125,24 +125,134 @@
             AI 问诊分析报告
           </h2>
           <div class="section-meta">
+            <!-- 删除了就诊日期，只保留问诊次数和状态 -->
             <span class="meta-tag">
-              <span class="tag-icon">📅</span>
-              {{ consultationData?.date }}
+              <span class="tag-icon">🔢</span>
+              第 {{ consultationData?.sequence_number }} 次问诊
             </span>
-            <span class="meta-tag">
-              <span class="tag-icon">💬</span>
-              {{ consultationData?.chat_history?.length || 0 }} 轮对话
+            <span class="meta-tag status-tag" :class="consultationData?.status">
+              <span class="tag-icon">{{
+                consultationData?.status === 'finished' ? '✅' : '⏳'
+              }}</span>
+              {{ consultationData?.status === 'finished' ? '已完成' : '进行中' }}
             </span>
           </div>
         </div>
 
         <div class="consultation-content">
-          <!-- AI诊断建议卡片 -->
-          <div class="card diagnosis-card">
+          <!-- 风险等级变化卡片 -->
+          <div class="card risk-change-card" v-if="consultationData?.final_risk_level">
+            <div class="card-header">
+              <h3 class="card-title">
+                <span class="title-icon">🎯</span>
+                风险等级评估
+              </h3>
+            </div>
+            <div class="risk-change-body">
+              <div class="risk-comparison">
+                <div class="risk-item initial">
+                  <div class="risk-label">初始评估</div>
+                  <div
+                    class="risk-badge"
+                    :class="getRiskClass(consultationData?.initial_risk_level)"
+                  >
+                    <span class="risk-emoji">{{
+                      getRiskEmoji(consultationData?.initial_risk_level)
+                    }}</span>
+                    <span class="risk-text">{{
+                      getRiskLabel(consultationData?.initial_risk_level)
+                    }}</span>
+                  </div>
+                </div>
+                <div class="risk-arrow">
+                  <span class="arrow-icon">→</span>
+                  <span class="arrow-label">AI修正</span>
+                </div>
+                <div class="risk-item final">
+                  <div class="risk-label">修正评估</div>
+                  <div class="risk-badge" :class="getRiskClass(consultationData?.final_risk_level)">
+                    <span class="risk-emoji">{{
+                      getRiskEmoji(consultationData?.final_risk_level)
+                    }}</span>
+                    <span class="risk-text">{{
+                      getRiskLabel(consultationData?.final_risk_level)
+                    }}</span>
+                  </div>
+                </div>
+              </div>
+              <div class="risk-note" v-if="riskChanged">
+                <span class="note-icon">💡</span>
+                <span class="note-text">
+                  经AI问诊深入了解后，风险等级从「{{
+                    getRiskLabel(consultationData?.initial_risk_level)
+                  }}」 调整为「{{ getRiskLabel(consultationData?.final_risk_level) }}」
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 分数对比雷达图 -->
+          <div class="card comparison-chart-card" v-if="hasScoreComparison">
+            <div class="card-header">
+              <h3 class="card-title">
+                <span class="title-icon">📈</span>
+                分数对比雷达图
+              </h3>
+              <div class="legend-inline">
+                <span class="legend-item">
+                  <span class="legend-dot initial"></span>
+                  初始评估
+                </span>
+                <span class="legend-item">
+                  <span class="legend-dot final"></span>
+                  AI修正
+                </span>
+              </div>
+            </div>
+            <div class="chart-container">
+              <div ref="comparisonChartRef" class="chart"></div>
+            </div>
+          </div>
+
+          <!-- 分数变化详情 -->
+          <div class="card score-changes-card" v-if="hasScoreChanges">
+            <div class="card-header">
+              <h3 class="card-title">
+                <span class="title-icon">📊</span>
+                维度分数变化
+              </h3>
+            </div>
+            <div class="score-changes-body">
+              <div
+                class="change-item"
+                v-for="item in scoreChangesList"
+                :key="item.dimension"
+                :class="getChangeClass(item.change)"
+              >
+                <div class="change-dimension">{{ item.dimension }}</div>
+                <div class="change-scores">
+                  <span class="score-initial">{{ item.initial }}</span>
+                  <span class="score-arrow">→</span>
+                  <span class="score-final">{{ item.final }}</span>
+                </div>
+                <div class="change-value" :class="getChangeClass(item.change)">
+                  <span class="change-icon">{{
+                    item.change > 0 ? '↑' : item.change < 0 ? '↓' : '—'
+                  }}</span>
+                  <span class="change-number"
+                    >{{ item.change > 0 ? '+' : '' }}{{ item.change.toFixed(2) }}</span
+                  >
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- AI诊断总结卡片 (Markdown渲染，已过滤备注和量化评估) -->
+          <div class="card diagnosis-card full-width">
             <div class="card-header">
               <h3 class="card-title">
                 <span class="title-icon">📝</span>
-                AI 诊断建议
+                AI 诊断总结
               </h3>
               <div class="ai-badge">
                 <span class="badge-icon">✨</span>
@@ -150,30 +260,39 @@
               </div>
             </div>
             <div class="diagnosis-body">
-              <div v-if="consultationData?.diagnosis_report" class="diagnosis-text">
-                {{ consultationData.diagnosis_report }}
-              </div>
+              <div
+                v-if="cleanedDiagnosisSummaryHtml"
+                class="markdown-content diagnosis-markdown"
+                v-html="cleanedDiagnosisSummaryHtml"
+              ></div>
               <div v-else class="no-diagnosis">
                 <div class="no-data-icon">💭</div>
-                <p>本次问诊暂无总结建议</p>
+                <p>问诊尚未完成，暂无诊断总结</p>
               </div>
             </div>
           </div>
 
-          <!-- 对话回顾卡片 -->
-          <div class="card chat-card">
+          <!-- 对话回顾卡片（已跳过前两条消息） -->
+          <div class="card chat-card full-width">
             <div class="card-header">
               <h3 class="card-title">
                 <span class="title-icon">💬</span>
                 对话回顾
               </h3>
-              <button class="expand-btn" @click="chatExpanded = !chatExpanded">
-                {{ chatExpanded ? '收起' : '展开全部' }}
-                <span class="expand-icon">{{ chatExpanded ? '↑' : '↓' }}</span>
-              </button>
+              <div class="chat-meta">
+                <span class="chat-count">{{ displayableChatHistory.length }} 轮对话</span>
+                <button
+                  class="expand-btn"
+                  @click="chatExpanded = !chatExpanded"
+                  v-if="displayableChatHistory.length > 4"
+                >
+                  {{ chatExpanded ? '收起' : '展开全部' }}
+                  <span class="expand-icon">{{ chatExpanded ? '↑' : '↓' }}</span>
+                </button>
+              </div>
             </div>
             <div class="chat-body" :class="{ expanded: chatExpanded }">
-              <div v-if="!consultationData?.chat_history?.length" class="empty-chat">
+              <div v-if="!displayableChatHistory.length" class="empty-chat">
                 <div class="empty-icon">💭</div>
                 <p>暂无对话记录</p>
               </div>
@@ -393,9 +512,17 @@
           <span class="btn-icon">💬</span>
           开始 AI 问诊
         </button>
-        <button class="action-btn primary" @click="continueChat" v-else>
+        <button
+          class="action-btn primary"
+          @click="continueChat"
+          v-else-if="consultationData?.status !== 'finished'"
+        >
           <span class="btn-icon">💬</span>
           继续问诊
+        </button>
+        <button class="action-btn primary" @click="startNewChat" v-else>
+          <span class="btn-icon">🔄</span>
+          新一轮问诊
         </button>
       </div>
     </main>
@@ -411,7 +538,7 @@ import DOMPurify from 'dompurify'
 import { getReportDetail } from '@/api/assessment'
 import { getConsultationDetail } from '@/api/history'
 
-// 类型定义
+// ==================== 类型定义 ====================
 interface ErrorInfo {
   title: string
   message: string
@@ -448,39 +575,44 @@ interface ReportData {
   }
 }
 
-// 后端返回的聊天消息类型（可能包含 system 角色）
-interface ApiChatMessage {
+interface ChatMessage {
   role: 'user' | 'assistant' | 'system'
   content: string
 }
 
-// 前端展示的聊天消息类型（只包含 user 和 assistant 角色）
-interface ChatMessage {
+interface FilteredChatMessage {
   role: 'user' | 'assistant'
   content: string
 }
 
-// 后端返回的问诊数据接口
-interface ApiConsultationData {
-  id?: number
-  sequence_number?: number
-  date: string
-  chat_history: ApiChatMessage[]
-  diagnosis_report: string
-  report_id?: number
+interface ScoreChangeItem {
+  dimension: string
+  initial: string
+  final: string
+  change: number
 }
 
-// 前端使用的问诊数据接口（过滤掉 system 消息）
+type InitialScoresType = DimensionItem[] | Record<string, number> | null | undefined
+
 interface ConsultationData {
-  date: string
-  diagnosis_report: string
+  id: number
+  report_id: number
+  sequence_number: number
+  diagnosis_summary: string | null
+  initial_scores?: InitialScoresType
+  final_scores?: Record<string, number> | null
+  score_changes?: Record<string, number> | null
+  initial_risk_level?: 'good' | 'moderate' | 'severe' | null
+  final_risk_level?: 'good' | 'moderate' | 'severe' | null
+  status: 'finished' | 'ongoing'
+  updated_at: string
   chat_history: ChatMessage[]
 }
 
+// ==================== 路由和状态 ====================
 const route = useRoute()
 const router = useRouter()
 
-// 状态
 const loading = ref(true)
 const error = ref<ErrorInfo | null>(null)
 const reportData = ref<ReportData | null>(null)
@@ -488,23 +620,221 @@ const consultationData = ref<ConsultationData | null>(null)
 const activeSection = ref<'consultation' | 'assessment' | 'all'>('all')
 const chatExpanded = ref(false)
 const chartRef = ref<HTMLElement>()
+const comparisonChartRef = ref<HTMLElement>()
 let chartInstance: echarts.ECharts | null = null
+let comparisonChartInstance: echarts.ECharts | null = null
 
-// 辅助函数：过滤掉 system 角色的消息
-const filterChatHistory = (messages: ApiChatMessage[]): ChatMessage[] => {
-  return messages
-    .filter((msg) => msg.role === 'user' || msg.role === 'assistant')
-    .map((msg) => ({
-      role: msg.role as 'user' | 'assistant',
-      content: msg.content,
-    }))
+// ==================== 辅助函数 ====================
+
+/**
+ * 【完全重写】清理诊断总结内容
+ * 删除：备注、量化评估更新、SCL-90分数、JSON数据等
+ */
+/**
+ * 【修复】清理诊断总结内容
+ * 删除：量化评估更新、SCL-90分数、JSON数据等
+ */
+const cleanDiagnosisSummary = (md: string | null | undefined): string => {
+  if (!md) return ''
+
+  let cleaned = md
+
+  // ========== 1. 删除中文序号格式的"量化评估"部分 ==========
+  // 匹配 "五、量化评估更新 (SCL-90)" 及后续所有内容
+  cleaned = cleaned.replace(/[一二三四五六七八九十]+[、.．]\s*量化评估[\s\S]*/gi, '')
+
+  // ========== 3. 删除阿拉伯数字序号格式 ==========
+  // 匹配 "4. **备注**" 或 "5. 量化评估" 等
+  cleaned = cleaned.replace(/\d+[\.、．]\s*\**备注\**[\s\S]*/gi, '')
+  cleaned = cleaned.replace(/\d+[\.、．]\s*\**量化评估[\s\S]*/gi, '')
+
+  // ========== 4. 删除其他格式的量化评估内容 ==========
+  // 匹配 "量化评估更新" 开头的所有后续内容
+  cleaned = cleaned.replace(/量化评估更新[\s\S]*/gi, '')
+  cleaned = cleaned.replace(/量化评估[\s\S]*/gi, '')
+
+  // 匹配 Markdown 标题格式 "### 量化评估" 等
+  cleaned = cleaned.replace(/#{1,6}\s*量化评估[\s\S]*/gi, '')
+
+  // 匹配 "**量化评估**" 或 "**量化评估更新**"
+  cleaned = cleaned.replace(/\*\*量化评估[^*]*\*\*[\s\S]*/gi, '')
+
+  // 匹配 "SCL-90" 或 "(SCL-90)" 及后续内容
+  cleaned = cleaned.replace(/\(?SCL-?90\)?[\s\S]*/gi, '')
+
+  // ========== 5. 删除其他格式的备注内容 ==========
+  cleaned = cleaned.replace(/\*\*备注\*\*[\s\S]*/gi, '')
+  cleaned = cleaned.replace(/#{1,6}\s*备注[\s\S]*/gi, '')
+
+  // ========== 6. 删除 JSON 和代码块 ==========
+  cleaned = cleaned.replace(/```[\s\S]*?```/gi, '')
+  cleaned = cleaned.replace(/\{[\s\S]*?"scores"[\s\S]*?\}/gi, '')
+  cleaned = cleaned.replace(/\{[\s\S]*?["']躯体化["'][\s\S]*?\}/gi, '')
+
+  // ========== 7. 删除日期相关行 ==========
+  cleaned = cleaned.replace(/^.*就诊日期.*$/gm, '')
+  cleaned = cleaned.replace(/^.*诊断日期.*$/gm, '')
+  cleaned = cleaned.replace(/^.*问诊日期.*$/gm, '')
+  cleaned = cleaned.replace(/^.*日期[：:]\s*\d{4}.*$/gm, '')
+
+  // ========== 8. 删除维度分数行 ==========
+  const dimensions = [
+    '躯体化',
+    '强迫症状',
+    '强迫',
+    '人际关系敏感',
+    '人际敏感',
+    '抑郁',
+    '焦虑',
+    '敌对',
+    '恐怖',
+    '偏执',
+    '精神病性',
+    '其他',
+    '总分',
+    '总均分',
+    '阳性项目数',
+    '阳性症状均分',
+  ]
+  const dimPattern = dimensions.join('|')
+  const dimRegex = new RegExp(`^.*(?:${dimPattern})\\s*[：:=]\\s*[\\d.]+.*$`, 'gm')
+  cleaned = cleaned.replace(dimRegex, '')
+
+  // ========== 9. 删除提示性文字 ==========
+  cleaned = cleaned.replace(/请根据对话内容[\s\S]*?(?=\n\n|$)/gi, '')
+  cleaned = cleaned.replace(/并在回复的最后[\s\S]*?(?=\n\n|$)/gi, '')
+  cleaned = cleaned.replace(/以\s*JSON\s*格式[\s\S]*?(?=\n\n|$)/gi, '')
+  cleaned = cleaned.replace(/输出如下数据[\s\S]*?(?=\n\n|$)/gi, '')
+  cleaned = cleaned.replace(/重新评估[\s\S]*?(?=\n\n|$)/gi, '')
+
+  // ========== 10. 清理格式 ==========
+  cleaned = cleaned.replace(/\n{3,}/g, '\n\n')
+  cleaned = cleaned.replace(/^[\s]*[-*]\s*$/gm, '')
+  cleaned = cleaned.trim()
+
+  return cleaned
 }
 
-// 计算属性
+/**
+ * 将初始分数统一转换为数组格式
+ */
+const normalizeInitialScores = (scores: InitialScoresType): DimensionItem[] => {
+  if (!scores) return []
+
+  if (Array.isArray(scores)) {
+    return scores
+  }
+
+  if (typeof scores === 'object') {
+    return Object.entries(scores).map(([name, value]) => ({
+      name,
+      value: typeof value === 'number' ? value : 0,
+      fullMark: 5,
+    }))
+  }
+
+  return []
+}
+
+/**
+ * 从初始分数中获取某个维度的分数
+ */
+const getInitialScoreValue = (dimension: string): number | undefined => {
+  const scores = consultationData.value?.initial_scores
+  if (!scores) return undefined
+
+  if (Array.isArray(scores)) {
+    const item = scores.find((s) => s.name === dimension)
+    return item?.value
+  }
+
+  if (typeof scores === 'object' && dimension in scores) {
+    return (scores as Record<string, number>)[dimension]
+  }
+
+  return undefined
+}
+
+// ==================== 计算属性 ====================
 const hasConsultation = computed(() => {
-  return !!consultationData.value && !!consultationData.value.chat_history?.length
+  return (
+    !!consultationData.value &&
+    (!!consultationData.value.chat_history?.length || !!consultationData.value.diagnosis_summary)
+  )
 })
 
+const normalizedInitialScores = computed(() => {
+  return normalizeInitialScores(consultationData.value?.initial_scores)
+})
+
+const hasScoreComparison = computed(() => {
+  return (
+    normalizedInitialScores.value.length > 0 &&
+    consultationData.value?.final_scores &&
+    Object.keys(consultationData.value.final_scores).length > 0
+  )
+})
+
+const hasScoreChanges = computed(() => {
+  return (
+    consultationData.value?.score_changes &&
+    Object.keys(consultationData.value.score_changes).length > 0
+  )
+})
+
+const riskChanged = computed(() => {
+  if (!consultationData.value) return false
+  return consultationData.value.initial_risk_level !== consultationData.value.final_risk_level
+})
+
+const scoreChangesList = computed((): ScoreChangeItem[] => {
+  const changes = consultationData.value?.score_changes
+  if (!changes) return []
+
+  return Object.entries(changes).map(([dimension, change]) => {
+    const initialValue = getInitialScoreValue(dimension)
+    const finalValue = consultationData.value?.final_scores?.[dimension]
+
+    return {
+      dimension,
+      initial: initialValue !== undefined ? initialValue.toFixed(2) : '--',
+      final: finalValue !== undefined ? finalValue.toFixed(2) : '--',
+      change: typeof change === 'number' ? change : 0,
+    }
+  })
+})
+
+// 过滤后的对话历史
+const filteredChatHistory = computed((): FilteredChatMessage[] => {
+  const messages = consultationData.value?.chat_history || []
+  return messages
+    .filter(
+      (msg): msg is ChatMessage & { role: 'user' | 'assistant' } =>
+        msg.role === 'user' || msg.role === 'assistant',
+    )
+    .map((msg) => ({
+      role: msg.role,
+      content: msg.content,
+    }))
+})
+
+// 可显示的对话历史：跳过前两条
+const displayableChatHistory = computed((): FilteredChatMessage[] => {
+  const filtered = filteredChatHistory.value
+  if (filtered.length <= 2) {
+    return []
+  }
+  return filtered.slice(2)
+})
+
+// 显示的消息
+const displayedMessages = computed(() => {
+  const messages = displayableChatHistory.value
+  if (chatExpanded.value) return messages
+  return messages.slice(0, 4)
+})
+
+// 风险等级相关
 const riskLevel = computed(() => reportData.value?.core_result?.risk_level || 'good')
 
 const riskTitle = computed(() => {
@@ -525,15 +855,6 @@ const riskClass = computed(() => {
   return map[riskLevel.value] || 'risk-good'
 })
 
-const riskLabel = computed(() => {
-  const map: Record<string, string> = {
-    good: '良好',
-    moderate: '中等',
-    severe: '高风险',
-  }
-  return map[riskLevel.value] || '良好'
-})
-
 const riskPercentage = computed(() => {
   const map: Record<string, number> = {
     good: 20,
@@ -543,48 +864,64 @@ const riskPercentage = computed(() => {
   return map[riskLevel.value] || 20
 })
 
+const displayRiskLevel = computed(() => {
+  if (hasConsultation.value && consultationData.value?.final_risk_level) {
+    return consultationData.value.final_risk_level
+  }
+  return riskLevel.value
+})
+
+const displayRiskClass = computed(() => getRiskClass(displayRiskLevel.value))
+const displayRiskLabel = computed(() => getRiskLabel(displayRiskLevel.value))
+
 const topDimensions = computed(() => {
   if (!reportData.value?.charts?.radar_data) return []
   return [...reportData.value.charts.radar_data].sort((a, b) => b.value - a.value).slice(0, 5)
 })
 
-const displayedMessages = computed(() => {
-  const messages = consultationData.value?.chat_history || []
-  if (chatExpanded.value) return messages
-  return messages.slice(0, 4) // 默认显示前4条
-})
-
+// Markdown渲染
 const renderedMarkdown = computed(() => {
   const md = reportData.value?.content?.advice_md
   if (!md) return ''
-
   marked.setOptions({ breaks: true, gfm: true })
   const html = marked.parse(md) as string
   return DOMPurify.sanitize(html)
 })
 
-// 生命周期
+// 清理后的诊断总结
+const cleanedDiagnosisSummaryHtml = computed(() => {
+  const md = consultationData.value?.diagnosis_summary
+  const cleanedMd = cleanDiagnosisSummary(md)
+  if (!cleanedMd) return ''
+
+  marked.setOptions({ breaks: true, gfm: true })
+  const html = marked.parse(cleanedMd) as string
+  return DOMPurify.sanitize(html)
+})
+
+// ==================== 生命周期 ====================
 onMounted(async () => {
   await fetchAllData()
 })
 
 onBeforeUnmount(() => {
-  if (chartInstance) {
-    chartInstance.dispose()
-  }
+  if (chartInstance) chartInstance.dispose()
+  if (comparisonChartInstance) comparisonChartInstance.dispose()
   window.removeEventListener('resize', handleResize)
 })
 
-// 监听activeSection变化，在显示测评报告时初始化图表
 watch(activeSection, (newVal) => {
-  if (newVal === 'assessment' || newVal === 'all') {
-    nextTick(() => {
+  nextTick(() => {
+    if (newVal === 'assessment' || newVal === 'all') {
       initChart()
-    })
-  }
+    }
+    if ((newVal === 'consultation' || newVal === 'all') && hasScoreComparison.value) {
+      initComparisonChart()
+    }
+  })
 })
 
-// 数据获取
+// ==================== 数据获取 ====================
 const fetchAllData = async () => {
   const reportId = route.params.reportId as string
   const consultationId = route.query.consultationId as string
@@ -603,7 +940,6 @@ const fetchAllData = async () => {
     loading.value = true
     error.value = null
 
-    // 并行请求测评报告
     const reportRes = await getReportDetail(reportId, uid)
 
     if (reportRes.code === 200) {
@@ -612,33 +948,27 @@ const fetchAllData = async () => {
       throw new Error(reportRes.msg || '获取测评报告失败')
     }
 
-    // 如果有consultationId，同时获取问诊详情
     if (consultationId) {
       try {
         const consultRes = await getConsultationDetail(consultationId)
         if (consultRes.code === 200) {
-          const apiData = consultRes.data as ApiConsultationData
-
-          // 转换数据格式，过滤掉 system 消息
-          consultationData.value = {
-            date: apiData.date,
-            diagnosis_report: apiData.diagnosis_report,
-            chat_history: filterChatHistory(apiData.chat_history || []),
-          }
+          consultationData.value = consultRes.data as ConsultationData
         }
       } catch (err) {
         console.warn('获取问诊详情失败，但不影响测评报告展示', err)
       }
     }
 
-    // 初始化图表
     nextTick(() => {
       initChart()
+      if (hasScoreComparison.value) {
+        initComparisonChart()
+      }
     })
   } catch (err: unknown) {
     error.value = {
       title: '加载失败',
-      message: err instanceof Error ? err.message : '获取报告数据失败，请检查网络连接',
+      message: err instanceof Error ? err.message : '获取报告数据失败',
     }
     console.error('获取报告失败:', err)
   } finally {
@@ -646,13 +976,11 @@ const fetchAllData = async () => {
   }
 }
 
-// 图表初始化
+// ==================== 图表初始化 ====================
 const initChart = () => {
   if (!chartRef.value || !reportData.value?.charts?.radar_data) return
 
-  if (chartInstance) {
-    chartInstance.dispose()
-  }
+  if (chartInstance) chartInstance.dispose()
 
   chartInstance = echarts.init(chartRef.value)
 
@@ -665,27 +993,15 @@ const initChart = () => {
 
   const option: echarts.EChartsOption = {
     backgroundColor: 'transparent',
-    tooltip: {
-      trigger: 'item',
-      formatter: '{b}: {c}分',
-    },
+    tooltip: { trigger: 'item', formatter: '{b}: {c}分' },
     radar: {
       indicator,
       shape: 'circle',
       splitNumber: 4,
-      axisName: {
-        color: '#546e7a',
-        fontSize: 12,
-      },
-      splitLine: {
-        lineStyle: { color: 'rgba(0, 137, 123, 0.1)' },
-      },
-      splitArea: {
-        areaStyle: { color: ['rgba(0, 137, 123, 0.02)', 'rgba(0, 137, 123, 0.05)'] },
-      },
-      axisLine: {
-        lineStyle: { color: 'rgba(0, 137, 123, 0.2)' },
-      },
+      axisName: { color: '#546e7a', fontSize: 12 },
+      splitLine: { lineStyle: { color: 'rgba(0, 137, 123, 0.1)' } },
+      splitArea: { areaStyle: { color: ['rgba(0, 137, 123, 0.02)', 'rgba(0, 137, 123, 0.05)'] } },
+      axisLine: { lineStyle: { color: 'rgba(0, 137, 123, 0.2)' } },
     },
     series: [
       {
@@ -727,11 +1043,86 @@ const initChart = () => {
   window.addEventListener('resize', handleResize)
 }
 
-const handleResize = () => {
-  chartInstance?.resize()
+const initComparisonChart = () => {
+  if (!comparisonChartRef.value || !consultationData.value) return
+
+  const initialScores = normalizedInitialScores.value
+  const finalScores = consultationData.value.final_scores
+
+  if (!initialScores.length || !finalScores) return
+
+  if (comparisonChartInstance) comparisonChartInstance.dispose()
+
+  comparisonChartInstance = echarts.init(comparisonChartRef.value)
+
+  const indicator = initialScores.map((item) => ({
+    name: item.name,
+    max: item.fullMark || 5,
+  }))
+
+  const initialValues = initialScores.map((item) => item.value)
+  const finalValues = initialScores.map((item) => finalScores[item.name] ?? item.value)
+
+  const option: echarts.EChartsOption = {
+    backgroundColor: 'transparent',
+    tooltip: { trigger: 'item' },
+    legend: {
+      data: ['初始评估', 'AI修正'],
+      bottom: 10,
+      textStyle: { color: '#546e7a', fontSize: 12 },
+    },
+    radar: {
+      indicator,
+      shape: 'circle',
+      splitNumber: 4,
+      axisName: { color: '#546e7a', fontSize: 11 },
+      splitLine: { lineStyle: { color: 'rgba(0, 137, 123, 0.1)' } },
+      splitArea: { areaStyle: { color: ['rgba(0, 137, 123, 0.02)', 'rgba(0, 137, 123, 0.05)'] } },
+      axisLine: { lineStyle: { color: 'rgba(0, 137, 123, 0.2)' } },
+    },
+    series: [
+      {
+        type: 'radar',
+        data: [
+          {
+            value: initialValues,
+            name: '初始评估',
+            itemStyle: { color: '#90a4ae' },
+            areaStyle: { color: 'rgba(144, 164, 174, 0.2)' },
+            lineStyle: { width: 2, color: '#90a4ae', type: 'dashed' },
+            symbol: 'circle',
+            symbolSize: 6,
+          },
+          {
+            value: finalValues,
+            name: 'AI修正',
+            itemStyle: { color: '#00897b' },
+            areaStyle: { color: 'rgba(0, 137, 123, 0.25)' },
+            lineStyle: { width: 2, color: '#00897b' },
+            symbol: 'circle',
+            symbolSize: 8,
+            label: {
+              show: true,
+              formatter: '{c}',
+              color: '#00897b',
+              fontSize: 10,
+              fontWeight: 'bold',
+            },
+          },
+        ],
+      },
+    ],
+  }
+
+  comparisonChartInstance.setOption(option)
 }
 
-// 辅助方法
+const handleResize = () => {
+  chartInstance?.resize()
+  comparisonChartInstance?.resize()
+}
+
+// ==================== 辅助方法 ====================
 const getDimensionColor = (value: number): string => {
   if (value <= 2) return '#4caf50'
   if (value <= 3) return '#ff9800'
@@ -756,29 +1147,62 @@ const getRiskTagClass = (value: number): string => {
   return 'tag-severe'
 }
 
-// 导航方法
+const getRiskClass = (level: string | null | undefined): string => {
+  const map: Record<string, string> = {
+    good: 'risk-good',
+    moderate: 'risk-moderate',
+    severe: 'risk-severe',
+  }
+  return map[level || 'good'] || 'risk-good'
+}
+
+const getRiskLabel = (level: string | null | undefined): string => {
+  const map: Record<string, string> = {
+    good: '良好',
+    moderate: '中等',
+    severe: '高风险',
+  }
+  return map[level || 'good'] || '良好'
+}
+
+const getRiskEmoji = (level: string | null | undefined): string => {
+  const map: Record<string, string> = {
+    good: '😊',
+    moderate: '😐',
+    severe: '😟',
+  }
+  return map[level || 'good'] || '😊'
+}
+
+const getChangeClass = (change: number): string => {
+  if (change > 0) return 'change-up'
+  if (change < 0) return 'change-down'
+  return 'change-none'
+}
+
+// ==================== 导航方法 ====================
 const goHome = () => router.push('/home')
 const goBack = () => router.back()
 const retry = () => fetchAllData()
 
 const startChat = () => {
   const reportId = route.params.reportId
-  router.push({
-    name: 'consultationChat',
-    params: { reportId },
-  })
+  router.push({ name: 'consultationChat', params: { reportId } })
 }
 
 const continueChat = () => {
   const reportId = route.params.reportId
-  router.push({
-    name: 'consultationChat',
-    params: { reportId },
-  })
+  router.push({ name: 'consultationChat', params: { reportId } })
+}
+
+const startNewChat = () => {
+  const reportId = route.params.reportId
+  router.push({ name: 'consultationChat', params: { reportId }, query: { newSession: 'true' } })
 }
 </script>
 
 <style scoped>
+/* 样式部分保持不变，与之前相同 */
 /* ============ 基础布局 ============ */
 .report-container {
   min-height: 100vh;
@@ -869,7 +1293,6 @@ const continueChat = () => {
 .page-header {
   background: rgba(255, 255, 255, 0.92);
   backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
   border-bottom: 1px solid rgba(0, 137, 123, 0.08);
   padding: 16px 30px;
   position: sticky;
@@ -896,7 +1319,6 @@ const continueChat = () => {
 .logo-section:hover {
   transform: scale(1.05);
 }
-
 .logo-icon {
   font-size: 32px;
   animation: pulse 3s ease-in-out infinite;
@@ -918,14 +1340,12 @@ const continueChat = () => {
   margin: 0;
   font-weight: 700;
 }
-
 .site-subtitle {
   color: #90a4ae;
   font-size: 11px;
   margin: 2px 0 0;
   letter-spacing: 1px;
 }
-
 .header-center {
   text-align: center;
   flex: 1;
@@ -969,7 +1389,6 @@ const continueChat = () => {
   font-size: 13px;
   margin: 6px 0 0;
 }
-
 .action-buttons {
   display: flex;
   gap: 12px;
@@ -992,12 +1411,10 @@ const continueChat = () => {
   background: linear-gradient(135deg, #00897b, #26a69a);
   color: white;
 }
-
 .back-btn {
   background: rgba(0, 137, 123, 0.1);
   color: #00897b;
 }
-
 .action-btn:hover {
   transform: translateY(-2px);
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
@@ -1043,13 +1460,11 @@ const continueChat = () => {
   background: rgba(0, 137, 123, 0.08);
   color: #00897b;
 }
-
 .tab-btn.active {
   background: white;
   color: #00897b;
   box-shadow: 0 4px 15px rgba(0, 137, 123, 0.15);
 }
-
 .tab-icon {
   font-size: 18px;
 }
@@ -1077,7 +1492,6 @@ const continueChat = () => {
 .section-icon {
   font-size: 24px;
 }
-
 .section-meta {
   display: flex;
   gap: 15px;
@@ -1094,6 +1508,14 @@ const continueChat = () => {
   color: #546e7a;
 }
 
+.meta-tag.status-tag.finished {
+  background: rgba(76, 175, 80, 0.1);
+  color: #4caf50;
+}
+.meta-tag.status-tag.ongoing {
+  background: rgba(255, 152, 0, 0.1);
+  color: #ff9800;
+}
 .tag-icon {
   font-size: 14px;
 }
@@ -1130,17 +1552,227 @@ const continueChat = () => {
   font-size: 20px;
 }
 
-/* ============ 问诊部分 ============ */
+/* ============ 问诊部分布局 ============ */
 .consultation-section {
   margin-bottom: 35px;
 }
 
 .consultation-content {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, 1fr);
   gap: 20px;
 }
 
+.consultation-content .full-width {
+  grid-column: 1 / -1;
+}
+
+/* ============ 风险等级变化卡片 ============ */
+.risk-change-card {
+  grid-column: 1 / -1;
+}
+.risk-change-body {
+  padding: 24px;
+}
+
+.risk-comparison {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 30px;
+  padding: 20px;
+  background: linear-gradient(135deg, rgba(0, 137, 123, 0.03), rgba(38, 166, 154, 0.02));
+  border-radius: 16px;
+}
+
+.risk-item {
+  text-align: center;
+}
+.risk-label {
+  font-size: 13px;
+  color: #78909c;
+  margin-bottom: 10px;
+  font-weight: 600;
+}
+
+.risk-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 24px;
+  border-radius: 30px;
+  font-weight: 700;
+}
+
+.risk-badge.risk-good {
+  background: linear-gradient(135deg, rgba(76, 175, 80, 0.15), rgba(102, 187, 106, 0.1));
+  color: #4caf50;
+}
+.risk-badge.risk-moderate {
+  background: linear-gradient(135deg, rgba(255, 152, 0, 0.15), rgba(255, 183, 77, 0.1));
+  color: #ff9800;
+}
+.risk-badge.risk-severe {
+  background: linear-gradient(135deg, rgba(244, 67, 54, 0.15), rgba(239, 83, 80, 0.1));
+  color: #f44336;
+}
+
+.risk-emoji {
+  font-size: 24px;
+}
+.risk-text {
+  font-size: 16px;
+}
+.risk-arrow {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.arrow-icon {
+  font-size: 28px;
+  color: #00897b;
+  font-weight: bold;
+}
+.arrow-label {
+  font-size: 11px;
+  color: #90a4ae;
+  font-weight: 600;
+}
+
+.risk-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 16px;
+  padding: 12px 16px;
+  background: rgba(0, 137, 123, 0.06);
+  border-radius: 10px;
+  border-left: 3px solid #00897b;
+}
+
+.note-icon {
+  font-size: 16px;
+  flex-shrink: 0;
+}
+.note-text {
+  font-size: 13px;
+  color: #546e7a;
+  line-height: 1.5;
+}
+
+/* ============ 分数对比雷达图 ============ */
+.comparison-chart-card .chart-container {
+  height: 320px;
+  padding: 0 20px;
+}
+.comparison-chart-card .chart {
+  width: 100%;
+  height: 100%;
+}
+.legend-inline {
+  display: flex;
+  gap: 20px;
+}
+.legend-inline .legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #546e7a;
+}
+.legend-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+.legend-dot.initial {
+  background: #90a4ae;
+  border: 2px dashed #78909c;
+}
+.legend-dot.final {
+  background: #00897b;
+}
+
+/* ============ 分数变化详情 ============ */
+.score-changes-body {
+  padding: 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 350px;
+  overflow-y: auto;
+}
+
+.change-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  background: rgba(0, 137, 123, 0.03);
+  border: 1px solid rgba(0, 137, 123, 0.08);
+  border-radius: 12px;
+  transition: all 0.3s;
+}
+
+.change-item:hover {
+  transform: translateX(4px);
+  box-shadow: 0 4px 15px rgba(0, 137, 123, 0.1);
+}
+.change-dimension {
+  font-size: 14px;
+  font-weight: 600;
+  color: #263238;
+  flex: 1;
+}
+.change-scores {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+}
+.score-initial {
+  color: #90a4ae;
+  font-weight: 500;
+}
+.score-arrow {
+  color: #b0bec5;
+  font-size: 12px;
+}
+.score-final {
+  color: #00897b;
+  font-weight: 700;
+}
+
+.change-value {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 700;
+  min-width: 80px;
+  justify-content: center;
+}
+
+.change-value.change-up {
+  background: rgba(244, 67, 54, 0.1);
+  color: #f44336;
+}
+.change-value.change-down {
+  background: rgba(76, 175, 80, 0.1);
+  color: #4caf50;
+}
+.change-value.change-none {
+  background: rgba(158, 158, 158, 0.1);
+  color: #9e9e9e;
+}
+.change-icon {
+  font-size: 14px;
+}
+
+/* ============ AI诊断总结卡片 ============ */
 .diagnosis-card,
 .chat-card {
   height: fit-content;
@@ -1162,11 +1794,7 @@ const continueChat = () => {
   padding: 24px;
 }
 
-.diagnosis-text {
-  color: #455a64;
-  font-size: 15px;
-  line-height: 1.9;
-  white-space: pre-wrap;
+.diagnosis-markdown {
   padding: 20px;
   background: linear-gradient(135deg, rgba(0, 137, 123, 0.04), rgba(38, 166, 154, 0.02));
   border-radius: 12px;
@@ -1192,7 +1820,18 @@ const continueChat = () => {
   opacity: 0.5;
 }
 
-/* 对话卡片 */
+/* ============ 对话卡片 ============ */
+.chat-meta {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+.chat-count {
+  font-size: 13px;
+  color: #90a4ae;
+  font-weight: 500;
+}
+
 .expand-btn {
   display: flex;
   align-items: center;
@@ -1223,19 +1862,16 @@ const continueChat = () => {
   max-height: 600px;
   overflow-y: auto;
 }
-
 .chat-list {
   display: flex;
   flex-direction: column;
   gap: 16px;
 }
-
 .message-item {
   display: flex;
   gap: 12px;
   max-width: 90%;
 }
-
 .message-item.user {
   flex-direction: row-reverse;
   margin-left: auto;
@@ -1257,23 +1893,19 @@ const continueChat = () => {
   border: 1px solid #e0f2f1;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
 }
-
 .message-item.user .message-avatar {
   background: linear-gradient(135deg, #00897b, #26a69a);
 }
-
 .message-content {
   flex: 1;
   min-width: 0;
 }
-
 .message-sender {
   font-size: 12px;
   font-weight: 600;
   color: #78909c;
   margin-bottom: 4px;
 }
-
 .message-item.user .message-sender {
   text-align: right;
 }
@@ -1291,7 +1923,6 @@ const continueChat = () => {
   border: 1px solid rgba(0, 137, 123, 0.1);
   border-top-left-radius: 4px;
 }
-
 .message-item.user .message-bubble {
   background: linear-gradient(135deg, #e0f2f1, #e8f5e9);
   border-top-right-radius: 4px;
@@ -1301,11 +1932,9 @@ const continueChat = () => {
 .assessment-section {
   margin-bottom: 30px;
 }
-
 .report-overview {
   margin-bottom: 25px;
 }
-
 .overview-card {
   padding: 28px;
 }
@@ -1323,13 +1952,11 @@ const continueChat = () => {
   display: flex;
   gap: 30px;
 }
-
 .meta-item {
   display: flex;
   align-items: center;
   gap: 8px;
 }
-
 .meta-icon {
   font-size: 18px;
 }
@@ -1342,7 +1969,6 @@ const continueChat = () => {
   font-size: 15px;
   font-weight: 600;
 }
-
 .user-info {
   display: flex;
   align-items: center;
@@ -1367,7 +1993,6 @@ const continueChat = () => {
   color: #263238;
   margin: 0 0 4px;
 }
-
 .assessment-name {
   font-size: 13px;
   color: #90a4ae;
@@ -1380,22 +2005,18 @@ const continueChat = () => {
   padding: 24px;
   transition: all 0.3s;
 }
-
 .risk-card.risk-good {
   background: linear-gradient(135deg, rgba(76, 175, 80, 0.1), rgba(102, 187, 106, 0.05));
   border: 1px solid rgba(76, 175, 80, 0.2);
 }
-
 .risk-card.risk-moderate {
   background: linear-gradient(135deg, rgba(255, 152, 0, 0.1), rgba(255, 183, 77, 0.05));
   border: 1px solid rgba(255, 152, 0, 0.2);
 }
-
 .risk-card.risk-severe {
   background: linear-gradient(135deg, rgba(244, 67, 54, 0.1), rgba(239, 83, 80, 0.05));
   border: 1px solid rgba(244, 67, 54, 0.2);
 }
-
 .risk-content {
   display: flex;
   align-items: center;
@@ -1418,21 +2039,18 @@ const continueChat = () => {
 .risk-details {
   flex: 1;
 }
-
 .risk-title {
   font-size: 24px;
   font-weight: 700;
   color: #263238;
   margin: 0 0 10px;
 }
-
 .risk-summary {
   font-size: 14px;
   color: #546e7a;
   line-height: 1.6;
   margin: 0 0 18px;
 }
-
 .risk-indicator {
   background: rgba(255, 255, 255, 0.85);
   border-radius: 12px;
@@ -1483,14 +2101,12 @@ const continueChat = () => {
   display: flex;
   gap: 25px;
 }
-
 .report-left {
   flex: 1;
   display: flex;
   flex-direction: column;
   gap: 25px;
 }
-
 .report-right {
   flex: 1.2;
 }
@@ -1499,12 +2115,10 @@ const continueChat = () => {
 .chart-card {
   padding-bottom: 20px;
 }
-
 .chart-container {
   height: 280px;
   padding: 0 20px;
 }
-
 .chart {
   width: 100%;
   height: 100%;
@@ -1518,7 +2132,7 @@ const continueChat = () => {
   border-top: 1px solid rgba(0, 137, 123, 0.08);
 }
 
-.legend-item {
+.chart-legend .legend-item {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1533,7 +2147,6 @@ const continueChat = () => {
   height: 10px;
   border-radius: 50%;
 }
-
 .legend-name {
   color: #546e7a;
   font-weight: 500;
@@ -1547,7 +2160,6 @@ const continueChat = () => {
 .metrics-card {
   padding-bottom: 10px;
 }
-
 .metrics-list {
   padding: 20px 24px;
   display: flex;
@@ -1567,25 +2179,21 @@ const continueChat = () => {
   transform: translateY(-2px);
   box-shadow: 0 6px 20px rgba(0, 137, 123, 0.1);
 }
-
 .metric-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   margin-bottom: 12px;
 }
-
 .metric-name {
   font-size: 14px;
   font-weight: 600;
   color: #263238;
 }
-
 .metric-score {
   font-size: 20px;
   font-weight: 700;
 }
-
 .metric-score.score-low {
   color: #4caf50;
 }
@@ -1633,7 +2241,6 @@ const continueChat = () => {
 .advice-card {
   height: fit-content;
 }
-
 .advice-body {
   padding: 24px;
   max-height: 500px;
@@ -1646,7 +2253,6 @@ const continueChat = () => {
   line-height: 1.8;
   font-size: 15px;
 }
-
 .markdown-content :deep(h1) {
   color: #00897b;
   font-size: 22px;
@@ -1654,14 +2260,12 @@ const continueChat = () => {
   padding-bottom: 10px;
   border-bottom: 2px solid rgba(0, 137, 123, 0.1);
 }
-
 .markdown-content :deep(h2) {
   color: #263238;
   font-size: 18px;
   margin: 20px 0 12px;
   font-weight: 700;
 }
-
 .markdown-content :deep(h3) {
   color: #00897b;
   font-size: 16px;
@@ -1669,28 +2273,23 @@ const continueChat = () => {
   padding-left: 12px;
   border-left: 4px solid #00897b;
 }
-
 .markdown-content :deep(p) {
   margin: 12px 0;
   color: #455a64;
 }
-
 .markdown-content :deep(ul),
 .markdown-content :deep(ol) {
   margin: 12px 0;
   padding-left: 24px;
 }
-
 .markdown-content :deep(li) {
   margin: 6px 0;
   color: #455a64;
 }
-
 .markdown-content :deep(strong) {
   color: #00897b;
   font-weight: 700;
 }
-
 .markdown-content :deep(blockquote) {
   border-left: 4px solid #00897b;
   padding: 12px 18px;
@@ -1732,25 +2331,21 @@ const continueChat = () => {
   padding: 30px 0;
   margin-top: 20px;
 }
-
 .bottom-actions .action-btn {
   padding: 14px 32px;
   font-size: 15px;
   border-radius: 14px;
 }
-
 .bottom-actions .action-btn.primary {
   background: linear-gradient(135deg, #00897b, #26a69a);
   color: white;
   box-shadow: 0 6px 25px rgba(0, 137, 123, 0.3);
 }
-
 .bottom-actions .action-btn.secondary {
   background: white;
   color: #546e7a;
   border: 1px solid rgba(0, 137, 123, 0.2);
 }
-
 .bottom-actions .action-btn:hover {
   transform: translateY(-3px);
 }
@@ -1821,32 +2416,27 @@ const continueChat = () => {
   color: #263238;
   margin: 0 0 8px;
 }
-
 .loading-subtitle {
   font-size: 14px;
   color: #90a4ae;
   margin: 0;
 }
-
 .error-icon {
   font-size: 64px;
   margin-bottom: 20px;
 }
-
 .error-title {
   font-size: 22px;
   font-weight: 600;
   color: #263238;
   margin: 0 0 10px;
 }
-
 .error-message {
   font-size: 14px;
   color: #78909c;
   margin: 0 0 25px;
   line-height: 1.5;
 }
-
 .error-actions {
   display: flex;
   gap: 15px;
@@ -1867,12 +2457,10 @@ const continueChat = () => {
   background: linear-gradient(135deg, #00897b, #26a69a);
   color: white;
 }
-
 .error-btn.secondary {
   background: rgba(0, 137, 123, 0.1);
   color: #00897b;
 }
-
 .error-btn:hover {
   transform: translateY(-2px);
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.1);
@@ -1880,9 +2468,10 @@ const continueChat = () => {
 
 /* ============ 响应式 ============ */
 @media (max-width: 1200px) {
-  .consultation-content,
-  .report-details {
+  .consultation-content {
     grid-template-columns: 1fr;
+  }
+  .report-details {
     flex-direction: column;
   }
 }
@@ -1893,45 +2482,44 @@ const continueChat = () => {
     gap: 15px;
     text-align: center;
   }
-
   .overview-header {
     flex-direction: column;
     gap: 20px;
     align-items: flex-start;
   }
-
   .report-meta {
     flex-direction: column;
     gap: 12px;
   }
-
   .risk-content {
     flex-direction: column;
     text-align: center;
   }
-
   .section-header {
     flex-direction: column;
     gap: 12px;
     align-items: flex-start;
   }
-
   .report-tabs {
     width: 100%;
     overflow-x: auto;
   }
-
   .tab-btn {
     flex: 1;
     justify-content: center;
     padding: 10px 16px;
   }
-
+  .risk-comparison {
+    flex-direction: column;
+    gap: 20px;
+  }
+  .risk-arrow {
+    transform: rotate(90deg);
+  }
   .bottom-actions {
     flex-direction: column;
     padding: 20px;
   }
-
   .bottom-actions .action-btn {
     width: 100%;
     justify-content: center;
@@ -1942,27 +2530,25 @@ const continueChat = () => {
   .page-header {
     padding: 12px 16px;
   }
-
   .main-content {
     padding: 20px 16px;
   }
-
   .page-title {
     font-size: 18px;
   }
-
   .btn-text {
     display: none;
   }
-
   .card-header {
     flex-direction: column;
     gap: 12px;
     align-items: flex-start;
   }
-
   .chart-container {
     height: 240px;
+  }
+  .comparison-chart-card .chart-container {
+    height: 280px;
   }
 }
 </style>

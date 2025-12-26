@@ -167,8 +167,9 @@
                       <div class="cons-time">{{ cons.date }}</div>
                     </div>
                     <div class="cons-center">
-                      <div class="cons-summary">
-                        {{ cons.summary_snippet || '点击查看详细内容' }}
+                      <!-- 👇 修改：显示固定文本，根据是否为第一次问诊显示不同内容 -->
+                      <div class="cons-title">
+                        {{ getConsultationTitle(cons.sequence_number) }}
                       </div>
                     </div>
                     <div class="cons-right">
@@ -221,6 +222,11 @@ const getRiskLabel = (level: string) => {
   return map[level] || level
 }
 
+// 获取问诊记录标题
+const getConsultationTitle = (sequenceNumber: number): string => {
+  return sequenceNumber === 1 ? '心理咨询病历' : '心理咨询病历（复诊）'
+}
+
 // 展开/收起
 const toggleExpand = (id: number) => {
   if (expandedIds.value.has(id)) {
@@ -230,7 +236,7 @@ const toggleExpand = (id: number) => {
   }
 }
 
-// 👇【核心修改】查看测评报告（不带问诊记录）
+// 查看测评报告（不带问诊记录）
 const viewReport = (reportId: number) => {
   router.push({
     name: 'combinedReport',
@@ -238,7 +244,7 @@ const viewReport = (reportId: number) => {
   })
 }
 
-// 👇【核心修改】查看测评报告 + 问诊记录
+// 查看测评报告 + 问诊记录
 const viewConsultation = (reportId: number, consultationId: number) => {
   router.push({
     name: 'combinedReport',
@@ -247,7 +253,7 @@ const viewConsultation = (reportId: number, consultationId: number) => {
   })
 }
 
-// 👇【核心修改】发起新问诊（跳转到问诊聊天页）
+// 发起新问诊（跳转到问诊聊天页）
 const gotoNewConsultation = (reportId: number) => {
   router.push({
     name: 'consultationChat',
@@ -983,6 +989,17 @@ onMounted(async () => {
 .cons-center {
   flex: 1;
   padding: 0 20px;
+  min-height: 50px;
+  display: flex;
+  align-items: center;
+}
+
+/* 问诊标题样式 */
+.cons-title {
+  color: #263238;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.4;
 }
 
 .cons-summary {
@@ -1120,11 +1137,17 @@ onMounted(async () => {
   .cons-center {
     padding: 0;
     width: 100%;
+    min-height: auto;
   }
 
   .cons-right {
     width: 100%;
     justify-content: space-between;
+  }
+
+  /* 移动端问诊标题优化 */
+  .cons-title {
+    font-size: 15px;
   }
 }
 
@@ -1155,6 +1178,10 @@ onMounted(async () => {
 
   .consultation-section {
     padding: 16px 18px;
+  }
+
+  .cons-title {
+    font-size: 14px;
   }
 }
 </style>

@@ -26,7 +26,7 @@ class PromptBuilder:
         :return: [{"role": "system", ...}, {"role": "user", ...}]
         """
         # 1. 获取 AI 顶层配置 (人设)
-        system_prompt = self._get_system_prompt()
+        system_prompt = self._get_base_system_prompt()
 
         # 2. 构建用户当前的病情描述 (基于规则库)
         patient_status = self._build_patient_status(report)

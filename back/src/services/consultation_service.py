@@ -87,7 +87,12 @@ class ConsultationService:
             print(f"Debug: Final scores to save: {final_scores}")
 
             # 获取问卷报告的原始分数（已经是字典格式）
+            # ------------------------------------------------------------------
+            # 【修改开始】确定对比的基准分数 (initial_radar)
+            # ------------------------------------------------------------------
             initial_radar = {}
+
+            # 默认使用原始问卷数据 (Baseline)
             if consultation.report and consultation.report.radar_data:
                 initial_radar = consultation.report.radar_data
                 if isinstance(initial_radar, str):
@@ -96,7 +101,42 @@ class ConsultationService:
                     except:
                         initial_radar = {}
 
-            print(f"Debug: Initial radar data from report: {initial_radar}")
+            # 如果是复诊 (sequence_number > 1)，尝试获取“上一次”问诊的结果作为对比基准
+            if consultation.sequence_number > 1:
+                try:
+                    # 动态导入 AIConsultation 以避免循环导入 (如果都在 services 里可能需要，或者直接用传入的对象的类)
+                    # from ..models import AIConsultation
+
+                    # 查询上一轮问诊记录
+                    # 注意：这里假设 AIConsultation 模型已经引入，或者使用 consultation.__class__
+                    prev_consultation = consultation.__class__.query.filter_by(
+                        report_id=consultation.report_id,
+                        sequence_number=consultation.sequence_number - 1
+                    ).first()
+
+                    if prev_consultation and prev_consultation.final_scores:
+                        print(f"Debug: 复诊模式，对比上一轮 (Seq: {prev_consultation.sequence_number}) 的分数")
+                        prev_scores = prev_consultation.final_scores
+                        # 确保格式正确
+                        if isinstance(prev_scores, str):
+                            prev_scores = json.loads(prev_scores)
+
+                        # 只有当上一轮有有效分数时才覆盖
+                        if prev_scores:
+                            initial_radar = prev_scores
+                    else:
+                        print("Debug: 未找到上一轮有效分数，降级对比原始问卷")
+                except Exception as e:
+                    print(f"Warning: 获取上一轮问诊数据失败: {e}")
+            else:
+                print("Debug: 初诊模式，对比原始问卷分数")
+
+            print(f"Debug: Comparison Base (Initial radar): {initial_radar}")
+            # ------------------------------------------------------------------
+            # 【修改结束】
+            # ------------------------------------------------------------------
+
+
 
             # 保存 AI 问诊后的分数
             consultation.final_scores = final_scores

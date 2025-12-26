@@ -62,11 +62,35 @@ class PromptBuilder:
 
     def _build_patient_status(self, report):
         """
-        核心逻辑：基于最高分原则，为 AI 提供精准的风险定性
-        """
-        radar_list = report.radar_data if isinstance(report.radar_data, list) else []
+            核心逻辑：支持多种数据格式解析，为 AI 提供精准的风险定性
+            """
+        raw_data = report.radar_data
+        radar_list = []
+
+        # 1. 数据格式标准化处理 (核心修复点)
+        if isinstance(raw_data, dict):
+            # 兼容你目前的格式: {'抑郁': 1.31, ...}
+            # 将其转换为统一的内部处理列表
+            radar_list = [{"name": k, "value": v} for k, v in raw_data.items()]
+        elif isinstance(raw_data, list):
+            # 兼容数组格式: [{"name": "抑郁", "value": 1.31}]
+            radar_list = raw_data
+        elif isinstance(raw_data, str):
+            # 兼容可能的 JSON 字符串格式
+            try:
+                import json
+                parsed = json.loads(raw_data)
+                if isinstance(parsed, dict):
+                    radar_list = [{"name": k, "value": v} for k, v in parsed.items()]
+                else:
+                    radar_list = parsed if isinstance(parsed, list) else []
+            except:
+                radar_list = []
+
+        # 如果仍然没有数据，返回提示
         if not radar_list:
             return "暂无详细维度数据"
+
 
         status_lines = []
         max_score = 0.0

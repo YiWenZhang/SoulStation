@@ -1,6 +1,6 @@
 import json
 from ..extensions import db
-from ..models import AIAgentConfig, AIAgentQuestion, AIAgentConfigVersion, AssessmentRule
+from ..models import AIAgentConfig, AIAgentQuestion
 
 # ==========================================
 # 1. AI 深度人设 (System Prompt) - 增加终止协议
@@ -198,11 +198,6 @@ def init_ai_config():
         db.session.add(config)
         db.session.commit()
         print("- 全局 Agent 配置已创建")
-        _create_version_snapshot(config, "v1.0.0 (System Init)")
-    else:
-        # 如果配置已存在，检查是否需要补全版本
-        if not AIAgentConfigVersion.query.filter_by(original_config_id=config.id).first():
-            _create_version_snapshot(config, "v1.0.0 (Retrofit)")
 
     # --- 2. 初始化维度引导问题 (使用详细的手动规则) ---
     print('>>> 正在初始化维度引导问题库...')
@@ -239,24 +234,7 @@ def init_ai_config():
         print(f"- 已新增/更新 {count_q} 个维度引导问题及评分规则")
 
 
-def _create_version_snapshot(config, tag):
-    """辅助函数：创建版本快照"""
-    snapshot_data = {
-        "name": config.name,
-        "model_name": config.model_name,
-        "temperature": config.temperature,
-        "system_prompt": config.system_prompt,
-        "style_config": config.style_config,
-        "emotion_recognition_rules": config.emotion_recognition_rules,
-        "scoring_rules": config.scoring_rules
-    }
-    version = AIAgentConfigVersion(
-        original_config_id=config.id,
-        version_tag=tag,
-        config_snapshot=json.dumps(snapshot_data, ensure_ascii=False)
-    )
-    db.session.add(version)
-    db.session.commit()
+
 
 
 def init_all_data():

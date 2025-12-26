@@ -31,7 +31,6 @@ class User(db.Model):
 
     # 关系
     sessions = db.relationship('AssessmentSession', backref='user', lazy='dynamic')
-    feedbacks = db.relationship('UserFeedback', backref='user', lazy='dynamic')
 
 
 # ==========================================
@@ -108,9 +107,7 @@ class QuestionCategory(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)  # 如：躯体化、焦虑
-    parent_id = db.Column(db.Integer, db.ForeignKey('question_categories.id'), nullable=True)
 
-    children = db.relationship('QuestionCategory', backref=db.backref('parent', remote_side=[id]))
 
 
 class Question(db.Model):
@@ -146,7 +143,7 @@ class QuestionOption(db.Model):
 
 
 # ==========================================
-# 4. 后台页面2：AI Agent配置模块 [cite: 950]
+# 4. AI Agent配置模块
 # ==========================================
 
 class AIAgentConfig(db.Model):
@@ -184,72 +181,9 @@ class AIAgentQuestion(db.Model):
     is_enabled = db.Column(db.Boolean, default=True)
 
 
-class AIAgentConfigVersion(db.Model):
-    """AI配置版本管理 (支持回滚) """
-    __tablename__ = 'ai_agent_config_versions'
-
-    id = db.Column(db.Integer, primary_key=True)
-    original_config_id = db.Column(db.Integer, db.ForeignKey('ai_agent_configs.id'))
-    version_tag = db.Column(db.String(50), comment='版本号如 202512初始版')
-
-    # 存储完整配置的快照 (JSON Dump)
-    config_snapshot = db.Column(MEDIUMTEXT)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 
-# ==========================================
-# 5. 后台页面3 & 辅助：数据管理与日志 [cite: 901, 984]
-# ==========================================
 
-class ExportRecord(db.Model):
-    """数据导出记录 """
-    __tablename__ = 'export_records'
-
-    id = db.Column(db.Integer, primary_key=True)
-    admin_id = db.Column(db.Integer, db.ForeignKey('users.id'))
-
-    export_range = db.Column(JSON, comment='筛选条件快照')
-    file_name = db.Column(db.String(255))
-    file_url = db.Column(db.String(512))
-    file_size = db.Column(db.String(20))
-    status = db.Column(db.String(20), default='processing', comment='processing, success, failed')
-
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-
-
-class OperationLog(db.Model):
-    """操作日志 [cite: 985]"""
-    __tablename__ = 'operation_logs'
-
-    id = db.Column(db.Integer, primary_key=True)
-    operator_id = db.Column(db.Integer, db.ForeignKey('users.id'))
-
-    module = db.Column(db.String(50), comment='操作模块')
-    action = db.Column(db.String(50), comment='具体动作')
-    target_id = db.Column(db.Integer, nullable=True, comment='操作对象ID')
-    ip_address = db.Column(db.String(50))
-    result = db.Column(db.String(20), comment='success/failure')
-    details = db.Column(db.Text, comment='备注或失败原因')
-
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-
-
-class UserFeedback(db.Model):
-    """用户反馈处理 [cite: 990]"""
-    __tablename__ = 'user_feedbacks'
-
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'))
-
-    content = db.Column(db.Text, nullable=False)
-    type = db.Column(db.String(20), comment='功能/体验/结果疑问')
-    images = db.Column(JSON, comment='上传的图片URL列表')
-
-    status = db.Column(db.String(20), default='pending', comment='pending, processing, replied, closed')
-    admin_reply = db.Column(db.Text, comment='管理员回复内容')
-
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, onupdate=datetime.utcnow)
 
 
 # ==========================================

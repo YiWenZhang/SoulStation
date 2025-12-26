@@ -5,6 +5,9 @@ from ..models import AssessmentReport, AIConsultation, AssessmentSession
 from ..utils.prompt_builder import PromptBuilder
 from ..utils.ai_client import AIClient
 from ..services.consultation_service import ConsultationService
+from flask import Blueprint, request, jsonify, current_app, Response, stream_with_context
+from ..services.consultation_service import ConsultationService
+import json
 
 # 创建独立的 Blueprint
 # 注意：url_prefix 设置为 '/api/consultation'
@@ -161,8 +164,8 @@ def start_consultation():
 # ==========================================
 # 2. 对话交互 (POST /api/consultation/chat)
 # ==========================================
-@ai_bp.route('/chat', methods=['POST'])
-def chat_consultation():
+@ai_bp.route('/chat/stream', methods=['POST'])
+def chat_consultation_stream():
     data = request.json
     consultation_id = data.get('consultation_id')
     user_content = data.get('content')
@@ -170,62 +173,22 @@ def chat_consultation():
     if not consultation_id or not user_content:
         return jsonify({'error': 'Missing parameters'}), 400
 
-    consultation = AIConsultation.query.get(consultation_id)
-    if not consultation:
-        return jsonify({'error': 'Consultation not found'}), 404
+    def generate():
+        # 调用 Service 层获取生成器
+        # Service 返回的是 (type, data) 的元组，Route 层负责将其格式化为 SSE 协议
+        for event_type, payload in ConsultationService.process_chat_stream(consultation_id, user_content):
+            # SSE 格式: data: <json_string>\n\n
+            # 我们可以加一个 event 字段方便前端区分消息类型
+            response_obj = {
+                "type": event_type,  # message | finished | error | done
+                "content": payload  # 具体的文本或对象
+            }
+            yield f"data: {json.dumps(response_obj, ensure_ascii=False)}\n\n"
 
-    if consultation.diagnosis_summary:
-        return jsonify({'error': 'Consultation finished'}), 400
+    # 返回流式响应
+    return Response(stream_with_context(generate()), mimetype='text/event-stream')
 
-    try:
-        # 1. 更新对话历史
-        history = list(consultation.chat_history)
-        history.append({"role": "user", "content": user_content})
 
-        # 2. 调用 AI
-        ai_raw_response = ai_client.get_response(history)
-
-        # 3. 检查自动结束信号
-        is_finished = "<END_DIAGNOSIS>" in ai_raw_response
-        clean_response = ai_raw_response.replace("<END_DIAGNOSIS>", "").strip()
-
-        # 4. 保存回复
-        # 构造基础响应
-        response_data = {
-            'code': 200,
-            'message': clean_response,
-            'status': 'ongoing'
-        }
-
-        if is_finished:
-            # --- 核心：结束即入库 ---
-            # 1. 生成并保存总结与量化分数
-            # 确保传入了 consultation 对象以供更新数据库
-            summary = _generate_diagnosis_summary(history, consultation, manual=False)
-
-            # 2. 修改数据库状态
-            consultation.diagnosis_summary = summary
-            if consultation.report:
-                consultation.report.consultation_status = 'completed'
-
-            db.session.commit()  # 确保所有变更写入 ai_consultations 表
-
-            # --- 核心：给前端发结束标志 ---
-            response_data['status'] = 'finished'  # 前端判断跳转的唯一依据
-            response_data['consultation_id'] = consultation.id
-            response_data['msg'] = "问诊已自动结束并生成报告"
-
-        else:
-            # 普通对话保存
-            consultation.chat_history = history
-            db.session.commit()
-
-        return jsonify(response_data)
-
-    except Exception as e:
-        db.session.rollback()
-        current_app.logger.error(f"Chat failed: {str(e)}")
-        return jsonify({'error': str(e)}), 500
 
 
 # ==========================================

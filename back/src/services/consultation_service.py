@@ -1,4 +1,7 @@
-from ..extensions import db  # 确保引入了 db 实例
+from ..extensions import db
+from ..models import AIConsultation
+from ..utils.ai_client import AIClient
+from ..utils.prompt_builder import PromptBuilder
 from sqlalchemy.orm.attributes import flag_modified
 import json
 import re
@@ -170,3 +173,117 @@ class ConsultationService:
             import traceback
             traceback.print_exc()  # 打印完整堆栈跟踪
             return False
+
+    @staticmethod
+    def process_chat_stream(consultation_id, user_content):
+        """
+        核心业务流：处理对话 -> 流式返回 -> 自动存档 -> 触发总结
+        返回一个生成器，生成 (event_type, data) 元组
+        """
+        # 1. 初始化工具
+        ai_client = AIClient()
+
+        # 2. 获取并校验数据
+        consultation = AIConsultation.query.get(consultation_id)
+        if not consultation:
+            yield ("error", "Consultation not found")
+            return
+
+        if consultation.diagnosis_summary:
+            yield ("error", "Consultation finished")
+            return
+
+        # 3. 更新对话历史 (用户部分)
+        history = list(consultation.chat_history)
+        history.append({"role": "user", "content": user_content})
+
+        # 临时保存用户输入，防止流中断导致消息丢失
+        consultation.chat_history = history
+        db.session.commit()
+
+        # 4. 调用 AI 流式接口
+        full_ai_response = ""
+        try:
+            # 这里的 yield 将实时推送到 Controller
+            for chunk in ai_client.get_stream_response(history):
+                full_ai_response += chunk
+                # 实时返回内容块
+                yield ("message", chunk)
+
+            # 5. 流结束后处理：拼接完整回复
+            is_finished = "<END_DIAGNOSIS>" in full_ai_response
+            clean_response = full_ai_response.replace("<END_DIAGNOSIS>", "").strip()
+
+            # 更新历史 (AI 部分)
+            history.append({"role": "assistant", "content": clean_response})
+            consultation.chat_history = history
+
+            if is_finished:
+                # --- 触发结束逻辑 (原 route 中的逻辑移到这里) ---
+                summary = ConsultationService._generate_diagnosis_summary(history, consultation, ai_client)
+
+                consultation.diagnosis_summary = summary
+                if consultation.report:
+                    consultation.report.consultation_status = 'completed'
+
+                db.session.commit()
+
+                # 通知前端结束，并附带总结ID等信息
+                yield ("finished", {
+                    "consultation_id": consultation.id,
+                    "msg": "问诊已自动结束并生成报告"
+                })
+            else:
+                # 普通对话结束
+                db.session.commit()
+                yield ("done", "stream_completed")
+
+        except Exception as e:
+            db.session.rollback()
+            yield ("error", str(e))
+
+    @staticmethod
+    def _generate_diagnosis_summary(chat_history, consultation, ai_client, manual=False):
+        """
+        内部辅助：生成总结 (逻辑从 Route 搬运过来，保持 Service 纯净)
+        """
+        conversation_text = ""
+        for msg in chat_history:
+            if msg['role'] in ['user', 'assistant']:
+                role = "医生" if msg['role'] == 'assistant' else "患者"
+                conversation_text += f"{role}: {msg['content']}\n"
+
+        prompt_content = f"""
+    【指令】
+    你是专业的医疗文书记录员。请根据以下的医患对话记录，整理一份结构化的心理咨询病历（Markdown格式）。
+
+    【对话记录】
+    {conversation_text}
+
+    【输出要求】
+    1. **现状分析**：总结患者的核心症状、持续时间及诱发因素。
+    2. **风险评估**：明确指出是否存在自伤、自杀或社会功能受损风险。
+    3. **行动建议**：列出医生在对话中给出的具体建议。
+    {"4. **备注**：由于患者主动中断了问诊，以上结论可能基于不完整信息。" if manual else ""}
+
+    请直接输出 Markdown 内容。
+
+    【量化评估要求】
+        请根据对话内容，重新评估 SCL-90 各维度的当前分数（1.0-5.0，保留两位小数）。
+        并在回复的最后，以 JSON 格式输出如下数据：
+        {{
+          "scores": {{ "躯体化": 1.5, "抑郁": 3.2, ... }}
+        }}
+    """
+        messages = [
+            {"role": "system", "content": "你是一名心理医生助理。"},
+            {"role": "user", "content": prompt_content}
+        ]
+
+        # 调用 AI (非流式)
+        ai_raw_response = ai_client.get_response(messages)
+
+        # 调用自身的静态方法解析数据
+        ConsultationService.update_consultation_data(consultation, ai_raw_response)
+
+        return ai_raw_response

@@ -54,3 +54,30 @@ class AIClient:
             current_app.logger.error(f"AI Service Error: {str(e)}")
             # 这里的异常建议抛出，交给 API 层去捕获并返回 500 错误给前端
             raise e
+
+    def get_stream_response(self, messages, temperature=0.7):
+        """
+        流式生成回复 (Generator)
+        """
+        client = self._get_client()
+        model = current_app.config.get("AI_MODEL_NAME", "deepseek-chat")
+
+        try:
+            # stream=True 是关键
+            response = client.chat.completions.create(
+                model=model,
+                messages=messages,
+                temperature=temperature,
+                stream=True
+            )
+
+            for chunk in response:
+                content = chunk.choices[0].delta.content
+                # 过滤掉 None 或空字符串
+                if content:
+                    yield content
+
+        except Exception as e:
+            current_app.logger.error(f"AI Stream Error: {str(e)}")
+            # 在流式中抛出异常比较特殊，通常前端会断开
+            raise e

@@ -651,7 +651,19 @@ const getRiskTagClass = (value: number): string => {
 }
 
 const startChat = () => {
-  router.push('/chat')
+  // 获取当前报告ID
+  const reportId = route.params.id
+
+  if (!reportId) {
+    showToast('报告ID缺失，无法发起问诊', 'error')
+    return
+  }
+
+  // 跳转到AI问诊聊天页面，带上报告ID
+  router.push({
+    name: 'consultationChat',
+    params: { reportId },
+  })
 }
 
 const downloadReport = async () => {

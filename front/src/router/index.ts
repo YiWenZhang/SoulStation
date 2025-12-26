@@ -79,11 +79,11 @@ const router = createRouter({
       component: () => import('../views/History/HistoryList.vue'),
       meta: { requiresAuth: true, role: 'user' },
     },
-    // 👇【新增】历史问诊详情 (点击某次问诊记录)
+    // 👇【修改】综合报告页面 - 可同时展示测评报告和问诊记录
     {
-      path: '/history/consultation/:id',
-      name: 'historyConsultationDetail',
-      component: () => import('../views/History/ConsultationDetail.vue'),
+      path: '/history/report/:reportId',
+      name: 'combinedReport',
+      component: () => import('../views/History/CombinedReportView.vue'),
       meta: { requiresAuth: true, role: 'user' },
     },
     // 👇【新增】个人资料页

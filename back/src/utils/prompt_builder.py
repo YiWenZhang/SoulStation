@@ -52,13 +52,7 @@ class PromptBuilder:
             {"role": "user", "content": user_content}
         ]
 
-    def _get_system_prompt(self):
-        """从数据库加载激活的 System Prompt"""
-        config = AIAgentConfig.query.filter_by(is_active=True).first()
-        if config:
-            return config.system_prompt
-        # 兜底默认值
-        return "你是一名专业的心理咨询师。"
+
 
     def _build_patient_status(self, report):
         """
@@ -149,3 +143,93 @@ class PromptBuilder:
 -------------------
 请对比本次数据，重点关注症状是否有改善或恶化。
 """
+
+    def _get_base_system_prompt(self):
+        """从数据库获取基础配置 (共性知识：评分规则、SCL-90定义等)"""
+        config = AIAgentConfig.query.filter_by(is_active=True).first()
+        if config:
+            return config.system_prompt
+        # 兜底默认值
+        return "你是一名专业的心理学专家，熟悉SCL-90量表。"
+
+
+    # === 智能体 A：咨询师 (Consultant) ===
+    def build_consultant_messages(self, report, history_messages=None):
+        """
+        构建【咨询师】的上下文
+        逻辑：数据库基础知识 + 咨询师专属人设
+        """
+        # 1. 获取数据库里的通用规则 (关键！)
+        base_prompt = self._get_base_system_prompt()
+
+        # 2. 追加咨询师专属指令
+        role_instruction = """
+【当前角色任务】
+你现在的身份是“心理咨询师”。
+请利用上述规则，用温暖、共情、口语化的语气与患者对话。
+不要直接罗列冷冰冰的分数，而是通过对话引导患者表达。
+当判断问诊可以结束（如患者表示无话可说，或你已收集足够信息）时，
+请务必在回复的最后加上 <END_DIAGNOSIS> 标记。
+"""
+        final_system_prompt = f"{base_prompt}\n{role_instruction}"
+
+        # 3. 获取患者画像
+        patient_status = self._build_patient_status(report)
+        user_context = f"【患者当前测评数据】\n{patient_status}\n请基于此数据与患者进行沟通。"
+
+        messages = [{"role": "system", "content": final_system_prompt}]
+        messages.append({"role": "user", "content": user_context})
+
+        # 4. 拼接历史
+        if history_messages:
+            clean_history = [m for m in history_messages if m['role'] != 'system']
+            messages.extend(clean_history)
+
+        return messages
+
+
+    # === 智能体 B：分析师 (Reporter) ===
+    def build_reporter_messages(self, chat_history):
+        """
+        构建【分析师】的上下文
+        逻辑：数据库基础知识 + 分析师专属格式要求
+        """
+        # 1. 获取数据库里的通用规则 (关键！)
+        base_prompt = self._get_base_system_prompt()
+
+        # 2. 将对话转为文本供分析
+        conversation_text = ""
+        for msg in chat_history:
+            if msg['role'] in ['user', 'assistant']:
+                role = "医生" if msg['role'] == 'assistant' else "患者"
+                conversation_text += f"{role}: {msg['content']}\n"
+
+        # 3. 追加分析师专属指令
+        role_instruction = """
+【当前角色任务】
+你现在的身份是“医疗文书记录员”。
+请忽略之前的共情要求，保持绝对客观、冷静。
+你的任务是阅读医患对话记录，输出一份结构化的 JSON 格式病历。
+"""
+
+        user_task = f"""
+【对话记录】
+{conversation_text}
+
+【输出要求】
+请分析上述对话，返回严格的 JSON 数据 (不要Markdown格式)，包含：
+1. diagnosis_summary: 包含现状分析、风险评估、行动建议 (Markdown字符串)。
+2. scores: 重新评估的 SCL-90 分数 (key为中文维度名, value为数字)。
+
+【JSON示例】
+{{
+    "diagnosis_summary": "### 现状分析...",
+    "scores": {{ "焦虑": 2.5, "抑郁": 1.2 }}
+}}
+"""
+        final_system_prompt = f"{base_prompt}\n{role_instruction}"
+
+        return [
+            {"role": "system", "content": final_system_prompt},
+            {"role": "user", "content": user_task}
+        ]

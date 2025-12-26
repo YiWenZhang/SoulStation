@@ -190,25 +190,36 @@ def chat_consultation():
         clean_response = ai_raw_response.replace("<END_DIAGNOSIS>", "").strip()
 
         # 4. 保存回复
-        history.append({"role": "assistant", "content": clean_response})
-        consultation.chat_history = history
-        consultation.current_step += 1
-
+        # 构造基础响应
         response_data = {
+            'code': 200,
             'message': clean_response,
             'status': 'ongoing'
         }
 
-        # 5. 如果触发结束信号，自动生成病历
         if is_finished:
-            summary = _generate_diagnosis_summary(history, manual=False)
+            # --- 核心：结束即入库 ---
+            # 1. 生成并保存总结与量化分数
+            # 确保传入了 consultation 对象以供更新数据库
+            summary = _generate_diagnosis_summary(history, consultation, manual=False)
+
+            # 2. 修改数据库状态
             consultation.diagnosis_summary = summary
-            consultation.report.consultation_status = 'completed'
+            if consultation.report:
+                consultation.report.consultation_status = 'completed'
 
-            response_data['status'] = 'finished'
-            response_data['consultation_id'] = consultation_id
+            db.session.commit()  # 确保所有变更写入 ai_consultations 表
 
-        db.session.commit()
+            # --- 核心：给前端发结束标志 ---
+            response_data['status'] = 'finished'  # 前端判断跳转的唯一依据
+            response_data['consultation_id'] = consultation.id
+            response_data['msg'] = "问诊已自动结束并生成报告"
+
+        else:
+            # 普通对话保存
+            consultation.chat_history = history
+            db.session.commit()
+
         return jsonify(response_data)
 
     except Exception as e:
@@ -227,35 +238,51 @@ def finish_consultation():
     consultation_id = data.get('consultation_id')
 
     if not consultation_id:
-        return jsonify({'error': 'Missing consultation_id'}), 400
+        return jsonify({'code': 400, 'msg': '缺少问诊ID'}), 400
 
     consultation = AIConsultation.query.get(consultation_id)
     if not consultation:
-        return jsonify({'error': 'Consultation not found'}), 404
+        return jsonify({'code': 404, 'msg': '未找到问诊记录'}), 404
 
+    # 如果已经生成过总结，说明之前已结束，直接返回
     if consultation.diagnosis_summary:
         return jsonify({
+            'code': 200,
             'status': 'finished',
-            'consultation_id': consultation.id  # 修改：返回 ID
+            'msg': '问诊之前已完成',
+            'data': {
+                'consultation_id': consultation.id
+            }
         })
 
     try:
-        # 强制总结
+        # 1. 强制生成总结（内部会触发数据量化入库）
+        # 确保传入了 consultation 对象以更新其 final_scores 等字段
         summary = _generate_diagnosis_summary(consultation.chat_history, consultation, manual=True)
 
+        # 2. 更新状态
         consultation.diagnosis_summary = summary
-        consultation.report.consultation_status = 'completed'
+        if consultation.report:
+            consultation.report.consultation_status = 'completed'
+
+        # 3. 显式提交事务，确保写入 ai_consultations 表
         db.session.commit()
 
+        # 4. 返回统一的结束标志给前端
         return jsonify({
+            'code': 200,
             'status': 'finished',
-            'message': '问诊已结束',
-            'consultation_id': consultation.id  # 修改：返回 ID
+            'msg': '问诊已手动结束，正在生成报告...',
+            'data': {
+                'consultation_id': consultation.id,
+                'report_preview': summary[:100]  # 返回预览，增加用户感知
+            }
         })
 
     except Exception as e:
         db.session.rollback()
-        return jsonify({'error': str(e)}), 500
+        current_app.logger.error(f"Manual finish failed: {str(e)}")
+        return jsonify({'code': 500, 'msg': f"结束失败: {str(e)}"}), 500
 
 
 # ==========================================

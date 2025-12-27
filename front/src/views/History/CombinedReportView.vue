@@ -201,7 +201,7 @@
               <div class="legend-inline">
                 <span class="legend-item">
                   <span class="legend-dot initial"></span>
-                  初始评估
+                  上次评估
                 </span>
                 <span class="legend-item">
                   <span class="legend-dot final"></span>
@@ -1083,7 +1083,7 @@ const initComparisonChart = () => {
     backgroundColor: 'transparent',
     tooltip: { trigger: 'item' },
     legend: {
-      data: ['初始评估', 'AI修正'],
+      data: ['上次评估', 'AI修正'],
       bottom: 10,
       textStyle: { color: '#546e7a', fontSize: 12 },
     },
@@ -1102,7 +1102,7 @@ const initComparisonChart = () => {
         data: [
           {
             value: initialValues,
-            name: '初始评估',
+            name: '上次评估',
             itemStyle: { color: '#90a4ae' },
             areaStyle: { color: 'rgba(144, 164, 174, 0.2)' },
             lineStyle: { width: 2, color: '#90a4ae', type: 'dashed' },

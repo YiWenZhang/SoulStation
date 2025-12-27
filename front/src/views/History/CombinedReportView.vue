@@ -272,7 +272,7 @@
             </div>
           </div>
 
-          <!-- 对话回顾卡片（已跳过前两条消息） -->
+          <!-- 对话回顾卡片 -->
           <div class="card chat-card full-width">
             <div class="card-header">
               <h3 class="card-title">
@@ -310,9 +310,16 @@
                     <div class="message-sender">
                       {{ msg.role === 'user' ? '我' : 'AI 咨询师' }}
                     </div>
-                    <div class="message-bubble">
+                    <!-- 用户消息：纯文本 -->
+                    <div class="message-bubble" v-if="msg.role === 'user'">
                       {{ msg.content }}
                     </div>
+                    <!-- AI消息：渲染Markdown -->
+                    <div
+                      class="message-bubble markdown-message"
+                      v-else
+                      v-html="renderMessageMarkdown(msg.content)"
+                    ></div>
                   </div>
                 </div>
               </div>
@@ -820,7 +827,7 @@ const scoreChangesList = computed((): ScoreChangeItem[] => {
   })
 })
 
-// 过滤后的对话历史
+// 过滤后的对话历史（只保留用户和助手消息）
 const filteredChatHistory = computed((): FilteredChatMessage[] => {
   const messages = consultationData.value?.chat_history || []
   return messages
@@ -834,16 +841,12 @@ const filteredChatHistory = computed((): FilteredChatMessage[] => {
     }))
 })
 
-// 可显示的对话历史：跳过前两条
+// 可显示的对话历史：显示全部消息
 const displayableChatHistory = computed((): FilteredChatMessage[] => {
-  const filtered = filteredChatHistory.value
-  if (filtered.length <= 2) {
-    return []
-  }
-  return filtered.slice(2)
+  return filteredChatHistory.value
 })
 
-// 显示的消息
+// 显示的消息（根据展开状态）
 const displayedMessages = computed(() => {
   const messages = displayableChatHistory.value
   if (chatExpanded.value) return messages
@@ -903,7 +906,15 @@ const renderedMarkdown = computed(() => {
   const html = marked.parse(md) as string
   return DOMPurify.sanitize(html)
 })
-
+/**
+ * 渲染消息内容的Markdown
+ */
+const renderMessageMarkdown = (content: string): string => {
+  if (!content) return ''
+  marked.setOptions({ breaks: true, gfm: true })
+  const html = marked.parse(content) as string
+  return DOMPurify.sanitize(html)
+}
 // 清理后的诊断总结
 const cleanedDiagnosisSummaryHtml = computed(() => {
   const md = consultationData.value?.diagnosis_summary
@@ -2566,5 +2577,121 @@ const startNewChat = () => {
   .comparison-chart-card .chart-container {
     height: 280px;
   }
+}
+/* ============ 消息气泡中的Markdown样式 ============ */
+.message-bubble.markdown-message {
+  padding: 12px 16px;
+}
+
+.message-bubble.markdown-message :deep(p) {
+  margin: 0 0 8px;
+  line-height: 1.6;
+}
+
+.message-bubble.markdown-message :deep(p:last-child) {
+  margin-bottom: 0;
+}
+
+.message-bubble.markdown-message :deep(h1),
+.message-bubble.markdown-message :deep(h2),
+.message-bubble.markdown-message :deep(h3),
+.message-bubble.markdown-message :deep(h4) {
+  margin: 12px 0 8px;
+  font-weight: 600;
+  color: #263238;
+}
+
+.message-bubble.markdown-message :deep(h1) {
+  font-size: 18px;
+}
+
+.message-bubble.markdown-message :deep(h2) {
+  font-size: 16px;
+}
+
+.message-bubble.markdown-message :deep(h3) {
+  font-size: 15px;
+  color: #00897b;
+}
+
+.message-bubble.markdown-message :deep(ul),
+.message-bubble.markdown-message :deep(ol) {
+  margin: 8px 0;
+  padding-left: 20px;
+}
+
+.message-bubble.markdown-message :deep(li) {
+  margin: 4px 0;
+  line-height: 1.5;
+}
+
+.message-bubble.markdown-message :deep(strong) {
+  color: #00897b;
+  font-weight: 600;
+}
+
+.message-bubble.markdown-message :deep(em) {
+  font-style: italic;
+  color: #546e7a;
+}
+
+.message-bubble.markdown-message :deep(blockquote) {
+  margin: 8px 0;
+  padding: 8px 12px;
+  border-left: 3px solid #00897b;
+  background: rgba(0, 137, 123, 0.05);
+  border-radius: 0 6px 6px 0;
+}
+
+.message-bubble.markdown-message :deep(code) {
+  background: rgba(0, 137, 123, 0.1);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-family: 'Consolas', monospace;
+}
+
+.message-bubble.markdown-message :deep(pre) {
+  background: rgba(0, 137, 123, 0.08);
+  padding: 12px;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin: 8px 0;
+}
+
+.message-bubble.markdown-message :deep(pre code) {
+  background: transparent;
+  padding: 0;
+}
+
+.message-bubble.markdown-message :deep(hr) {
+  border: none;
+  height: 1px;
+  background: rgba(0, 137, 123, 0.15);
+  margin: 12px 0;
+}
+
+.message-bubble.markdown-message :deep(a) {
+  color: #00897b;
+  text-decoration: underline;
+}
+
+.message-bubble.markdown-message :deep(table) {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 8px 0;
+  font-size: 13px;
+}
+
+.message-bubble.markdown-message :deep(th),
+.message-bubble.markdown-message :deep(td) {
+  padding: 6px 10px;
+  border: 1px solid rgba(0, 137, 123, 0.15);
+  text-align: left;
+}
+
+.message-bubble.markdown-message :deep(th) {
+  background: rgba(0, 137, 123, 0.08);
+  font-weight: 600;
 }
 </style>

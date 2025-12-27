@@ -1,3 +1,6 @@
+from flask import current_app
+from .shadow_service import ShadowService
+from ..utils.draft_manager import DraftManager
 from ..extensions import db
 from ..models import AIConsultation
 from ..utils.ai_client import AIClient
@@ -216,12 +219,14 @@ class ConsultationService:
 
     @staticmethod
     def process_chat_stream(consultation_id, user_content):
+        # 获取 real_app 传给后台线程
+        real_app = current_app._get_current_object()
         # 1. 初始化
         ai_client = AIClient()
         prompt_builder = PromptBuilder()  # 实例化
-
         # ... (获取 consultation 对象，校验逻辑保持不变) ...
         consultation = AIConsultation.query.get(consultation_id)
+        if not consultation: return
         # ...
 
         # 2. 更新历史
@@ -256,6 +261,7 @@ class ConsultationService:
         full_ai_response = ""
         try:
             # 咨询师参数：温度 0.7 (更像人)
+            # === Agent A 流式输出 ===
             for chunk in ai_client.get_stream_response(messages, temperature=0.7):
                 full_ai_response += chunk
                 yield ("message", chunk)
@@ -266,22 +272,39 @@ class ConsultationService:
 
             history.append({"role": "assistant", "content": clean_response})
             consultation.chat_history = history
+            db.session.commit()
 
+            # =================================================
+            # 【优化点 1】触发 Agent B (影子模式) - 实时更新
+            # =================================================
+            if not is_finished:
+                # 提取最近一轮对话，丢给影子去分析
+                recent_round = [
+                    {"role": "user", "content": user_content},
+                    {"role": "assistant", "content": clean_response}
+                ]
+                # 异步执行，不卡顿
+                ShadowService.trigger_shadow_analysis(real_app, consultation_id, recent_round)
+
+            # =================================================
+            # 【优化点 2】触发 Agent B (报告模式) - 极速交卷
+            # =================================================
             if is_finished:
-                # 4. 【召唤智能体 B：分析师】
-                # 当对话结束时，不直接用 chat_history 做总结，而是构建专门的 Prompt
-                yield ("message", "\n\n[系统] 正在生成专业诊断报告，请稍候...")
+                yield ("message", "\n\n[系统] 正在基于实时草稿生成最终报告...")
 
-                # 传入完整的 history 给分析师
-                summary_data = ConsultationService._generate_report_with_agent_b(history, ai_client, prompt_builder,consultation)
+                # 直接调用下面的私有方法生成报告
+                # 注意：这里我们不需要传 history 了，因为信息都在 draft 里
+                summary_data = ConsultationService._generate_report_with_agent_b(
+                    consultation_id,  # 传 ID 方便去读文件
+                    ai_client,
+                    prompt_builder,
+                    consultation
+                )
 
-                # 保存结果 (解析逻辑从 _generate_report_with_agent_b 内部返回)
+                # 保存结果 (复用原有逻辑)
                 consultation.diagnosis_summary = summary_data.get('diagnosis_summary')
 
-                # 自动解析分数并入库 (复用你之前的 update_consultation_data 逻辑，稍作调整)
                 if 'scores' in summary_data:
-                    # 构造一个伪造的 raw_response 给 update_consultation_data 用，或者直接赋值
-                    # 为了复用之前的代码逻辑，这里手动序列化一下
                     fake_raw = json.dumps({"scores": summary_data['scores']})
                     ConsultationService.update_consultation_data(consultation, fake_raw)
 
@@ -290,18 +313,63 @@ class ConsultationService:
 
                 db.session.commit()
 
+                # 【扫尾】清理临时文件
+                DraftManager.delete_draft(consultation_id)
+
                 yield ("finished", {
                     "consultation_id": consultation.id,
                     "msg": "问诊已结束"
                 })
             else:
-                db.session.commit()
                 yield ("done", "stream_completed")
 
         except Exception as e:
-            # ... (异常处理)
+            # ... 异常处理
             pass
 
+        # =====================================================
+        # 辅助方法修改：改为从草稿读取
+        # =====================================================
+    @staticmethod
+    def _generate_report_with_agent_b(consultation_id, ai_client, prompt_builder, consultation):
+        """
+        原来的生成报告逻辑 -> 升级为读取 DraftManager
+        """
+        # 1. 确定基准分数 (逻辑不变)
+        base_scores = consultation.report.radar_data
+        if consultation.sequence_number > 1:
+            prev_con = AIConsultation.query.filter_by(
+                report_id=consultation.report_id,
+                sequence_number=consultation.sequence_number - 1
+            ).first()
+            if prev_con and prev_con.final_scores:
+                base_scores = prev_con.final_scores
+
+        # 2. 【核心修改】从文件加载影子分析师写好的草稿
+        draft_data = DraftManager.load_draft(consultation_id)
+
+        # 如果草稿是空的（比如只有一句话就结束了），兜底策略：把当前简单的对话作为草稿
+        if not draft_data:
+            draft_data = {"overview": "对话较短，未生成详细草稿", "chat_log": "请直接分析历史记录"}
+
+        # 3. 构建 Prompt (使用升级后的 build_reporter_messages)
+        messages = prompt_builder.build_reporter_messages(draft_data, base_scores=base_scores)
+
+        # 4. 调用 AI (JSON 模式)
+        raw_content = ai_client.get_response(
+            messages,
+            temperature=0.2,
+            response_format={"type": "json_object"}
+        )
+
+        # 5. 解析
+        try:
+            clean_json = raw_content.replace("```json", "").replace("```", "").strip()
+            return json.loads(clean_json)
+        except:
+            return {"diagnosis_summary": raw_content, "scores": {}}
+
+'''
     @staticmethod
     def _generate_report_with_agent_b(chat_history, ai_client, prompt_builder, consultation):
         """
@@ -359,3 +427,4 @@ class ConsultationService:
                 "diagnosis_summary": raw_content,
                 "scores": base_scores  # 报错时至少保留基准分数不丢失
             }
+'''

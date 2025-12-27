@@ -1,5 +1,6 @@
-# back/src/utils/common.py
 
+from ..models import Question, QuestionCategory, AssessmentReport, AssessmentRule
+import json
 import math
 
 # ==========================================
@@ -240,3 +241,67 @@ def get_risk_suggestion(risk_level):
         'severe': "检测到您的心理压力较大，建议寻求专业心理咨询师的帮助。"
     }
     return mapping.get(risk_level, "无数据")
+
+
+def calculate_scl90_report_logic(session):
+    """
+    核心算分逻辑：从 session 的答题历史中计算 SCL-90 各维度分数并返回 Report 对象
+    """
+    answers = session.chat_history  # 格式: {"qid": score, ...}
+    if not isinstance(answers, dict) or not answers:
+        raise ValueError("没有发现答题数据")
+
+    # 1. 准备基础数据
+    questions = Question.query.filter(Question.id.in_(map(int, answers.keys()))).all()
+    categories = {c.id: c.name for c in QuestionCategory.query.all()}
+
+    # 2. 维度算分 (SCL-90 因子分)
+    dimension_scores = {}
+    for q in questions:
+        try:
+            score = float(answers.get(str(q.id), 0))
+        except (ValueError, TypeError):
+            continue
+        cat_name = categories.get(q.category_id, "其他")
+        if cat_name not in dimension_scores:
+            dimension_scores[cat_name] = []
+        dimension_scores[cat_name].append(score)
+
+    # 3. 生成雷达图数据 & 筛选高风险维度
+    radar_data = {}
+    high_risk_dims = []
+    for dim, scores_list in dimension_scores.items():
+        if not scores_list: continue
+        avg_score = round(sum(scores_list) / len(scores_list), 2)
+        radar_data[dim] = avg_score
+        if avg_score >= 2.0:
+            high_risk_dims.append(dim)
+
+    # 4. 计算全局总分
+    valid_scores_list = [float(v) for v in answers.values() if str(v).replace('.', '', 1).isdigit()]
+    total_score = sum(valid_scores_list) if valid_scores_list else 0
+    total_avg = round(total_score / len(valid_scores_list), 2) if valid_scores_list else 0
+
+    # 5. 判定总体风险等级与摘要 (复用 api.py 原有逻辑)
+    max_factor_score = max(radar_data.values()) if radar_data else 0
+    if max_factor_score >= 3.0:
+        risk_level = 'severe'
+    elif max_factor_score >= 2.0:
+        risk_level = 'moderate'
+    else:
+        risk_level = 'good'
+
+    summary_short = "心理状态良好"
+    if risk_level != 'good':
+        summary_short = f"{len(high_risk_dims)}个维度存在风险倾向"
+
+    # 6. 构造并返回 Report 对象（但不 commit，交给调用者决定何时提交）
+    return AssessmentReport(
+        session_id=session.id,
+        radar_data=radar_data,
+        total_score=total_score,
+        total_avg=total_avg,
+        risk_level=risk_level,
+        high_risk_dimensions=high_risk_dims,
+        summary_short=summary_short
+    )

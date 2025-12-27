@@ -151,6 +151,97 @@ class PromptBuilder:
 
         return messages
 
+    # =========================================================================
+    #  智能体 B (影子分析体系) - 修正版
+    # =========================================================================
+
+    # 1. 影子模式：实时更新草稿 (Shadow Mode)
+    def build_shadow_update_messages(self, current_draft, recent_dialogue):
+        """
+        智能体 B - 分身：负责在后台默默维护病历草稿
+        """
+        base_prompt = self._get_base_system_prompt()
+
+        system_prompt = f"""
+{base_prompt}
+【当前身份】你是一名“影子分析师”，在后台实时旁听医患对话。
+【任务】维护一份“动态病历草稿”。
+【指令】请根据【现有草稿】和【最新对话】，输出更新后的 JSON 草稿。
+1. **增量补充**：发现新症状/风险/关键事件，添加到对应字段。
+2. **动态修正**：如果患者修正了说法，请同步更新草稿。
+3. **评分追踪**：根据对话内容，预估当前的 SCL-90 维度分值变化，存入 temp_scores。
+
+【JSON 结构要求】
+{{
+    "overview": "病情摘要...",
+    "symptoms": ["症状1", "症状2"],
+    "risk_factors": ["风险1..."],
+    "temp_scores": {{ "焦虑": 2.5, "抑郁": 1.8 }} 
+}}
+"""
+        user_content = f"""
+【现有草稿】：
+{json.dumps(current_draft, ensure_ascii=False)}
+
+【最新发生的对话】：
+{recent_dialogue}
+
+请输出更新后的 JSON 草稿：
+"""
+        return [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_content}]
+
+    # 2. 报告模式：基于草稿生成最终报告 (Reporter Mode) - 【已修复评分逻辑】
+    def build_reporter_messages(self, draft_data, base_scores=None):
+        """
+        智能体 B - 本体：基于草稿生成最终报告
+        """
+        base_prompt = self._get_base_system_prompt()
+
+        # 将草稿转为字符串，方便 AI 阅读
+        draft_str = json.dumps(draft_data, ensure_ascii=False)
+
+        role_instruction = """
+【当前角色任务】
+你现在的身份是“医疗文书记录员”。请保持绝对客观。
+你的任务是：不需要再阅读冗长的对话记录，而是直接根据这份【详尽的病历草稿】以及【参考基准分数】，整理出最终的诊断报告。
+"""
+
+        # 【核心修复】：完整找回了原来的关键评分指令，并适配了 draft 上下文
+        user_task = f"""
+【病历草稿数据 (包含影子分析师的实时估分 temp_scores)】
+{draft_str}
+
+【参考基准分数 (上一轮/初始)】
+{base_scores}
+
+【输出要求】
+返回严格 JSON 格式。
+
+【病历文书 (diagnosis_summary) 生成规范】
+1. **排版美观**：使用 Markdown 标题（###）、列表（-）、加粗（**）等符号。
+2. **内容深度**：结合草稿中的 symptoms 和 risk_factors，进行深度解读。
+3. **语言风格**：专业、冷静、客观。
+
+【关键评分指令 (!!重要!!) 】
+1. **对比修正**：请对比【参考基准分数】与草稿中的【temp_scores】。根据患者在整个对话中表现出的症状缓解或加重，给出**最新**的量化得分。
+2. **动态体现**：**严禁无视基准分数直接打分！**
+   - 如果草稿显示患者情绪好转/问题解决，得分应在基准分基础上**适当下降**。
+   - 如果显示有新冲突/恶化，得分应**上升**。
+   - **必须体现分数波动**，不要直接照抄基准分，也不要完全照抄 temp_scores，要做最终裁定。
+3. **保持连贯**：确保分数的变化趋势符合医疗逻辑。
+
+【JSON 示例】
+{{
+    "diagnosis_summary": "### 1. 现状分析\\n...",
+    "scores": {{ "焦虑": 2.3, "抑郁": 1.5 }}
+}}
+"""
+        return [
+            {"role": "system", "content": f"{base_prompt}\n{role_instruction}"},
+            {"role": "user", "content": user_task}
+        ]
+
+'''
     # === 智能体 B：分析师 (Reporter) ===
     def build_reporter_messages(self, chat_history, base_scores=None):
         """
@@ -205,3 +296,4 @@ class PromptBuilder:
             {"role": "system", "content": f"{base_prompt}\n{role_instruction}"},
             {"role": "user", "content": user_task}
         ]
+'''

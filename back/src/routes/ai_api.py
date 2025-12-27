@@ -122,8 +122,20 @@ def start_consultation():
         sequence_number = count + 1
 
         # 2. 构建 Prompt 上下文 (包含人设、知识库、历史病历)
-        initial_messages = prompt_builder.build_messages(report)
+        prev_scores = None
+        if sequence_number > 1:
+            prev_con = AIConsultation.query.filter_by(
+                report_id=report.id,
+                sequence_number=count  # 上一次的序号
+            ).first()
+            if prev_con:
+                prev_scores = prev_con.final_scores
 
+        initial_messages = prompt_builder.build_consultant_messages(
+            report,
+            sequence_number=sequence_number,
+            prev_scores=prev_scores
+        )
         # 3. AI 发起第一句开场白
         ai_response_text = ai_client.get_response(initial_messages)
 

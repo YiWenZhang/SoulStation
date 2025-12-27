@@ -15,7 +15,7 @@ class AIClient:
         内部辅助方法：动态获取配置并创建 LangChain 对象
         """
         api_key = current_app.config.get('AI_API_KEY')
-        base_url = current_app.config.get('AI_API_URL', 'https://api.deepseek.com')
+        base_url = current_app.config.get('AI_BASE_URL', 'https://api.deepseek.com')
         model_name = current_app.config.get('AI_MODEL_NAME', 'deepseek-chat')
 
         return ChatOpenAI(

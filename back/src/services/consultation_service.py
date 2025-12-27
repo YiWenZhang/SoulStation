@@ -270,10 +270,33 @@ class ConsultationService:
             is_finished = "<END_DIAGNOSIS>" in full_ai_response
             clean_response = full_ai_response.replace("<END_DIAGNOSIS>", "").strip()
 
-            history.append({"role": "assistant", "content": clean_response})
-            consultation.chat_history = history
-            db.session.commit()
+            # =======================================================
+            # 【核心修改区】 在保存前进行过滤
+            # =======================================================
 
+            # 1. 先把 AI 的最新回复加到内存列表里
+            history.append({"role": "assistant", "content": clean_response})
+
+            # 2. 定义过滤规则：只保留真正的用户对话和 AI 回复
+            # 过滤掉 'system' 角色
+            # 过滤掉 包含 '【患者当前测评数据】' 的 prompt 上下文 (因为 PromptBuilder 下次会自动重新生成它，不用存)
+
+            clean_history_to_save = []
+            for msg in history:
+                # 规则1: 只要不是 system 角色
+                if msg.get('role') == 'system':
+                    continue
+
+                # 规则2: 如果是 user 角色，但内容是后端自动拼装的“测评数据”，也不要存
+                # 判断依据可以是内容特征，比如包含 "【患者当前测评数据】"
+                if msg.get('role') == 'user' and "【患者当前测评数据】" in msg.get('content', ''):
+                    continue
+
+                clean_history_to_save.append(msg)
+
+            # 3. 将干净的历史存入数据库
+            consultation.chat_history = clean_history_to_save
+            db.session.commit()
             # =================================================
             # 【优化点 1】触发 Agent B (影子模式) - 实时更新
             # =================================================
@@ -330,6 +353,7 @@ class ConsultationService:
         # =====================================================
         # 辅助方法修改：改为从草稿读取
         # =====================================================
+
     @staticmethod
     def _generate_report_with_agent_b(consultation_id, ai_client, prompt_builder, consultation):
         """

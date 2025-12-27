@@ -267,6 +267,16 @@ def get_consultation_detail(consultation_id):
 
         # 获取关联的原始报告数据
         report = consultation.report
+        initial_scores = report.radar_data if report else {}
+
+        # 如果是复诊，获取上一轮的 AI 修正分数作为前端显示的基准
+        if consultation.sequence_number > 1:
+            prev = AIConsultation.query.filter_by(
+                report_id=consultation.report_id,
+                sequence_number=consultation.sequence_number - 1
+            ).first()
+            if prev and prev.final_scores:
+                initial_scores = prev.final_scores
 
         # 2. 构造响应数据
         result_data = {
@@ -278,8 +288,7 @@ def get_consultation_detail(consultation_id):
             "diagnosis_summary": consultation.diagnosis_summary,  # MD 总结结论
 
             # --- 分数对比数据 ---
-            # 原始问卷的雷达图分数
-            "initial_scores": report.radar_data if report else [],
+            "initial_scores": initial_scores,
             # AI 问诊后修正的维度分数
             "final_scores": consultation.final_scores,
             # 相比初始分数的变化幅度 (由 ConsultationService 计算)

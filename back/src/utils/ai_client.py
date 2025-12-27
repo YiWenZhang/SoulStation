@@ -1,73 +1,86 @@
-from openai import OpenAI
+import os
 from flask import current_app
+# 引入 LangChain 组件
+from langchain_openai import ChatOpenAI
+from langchain.schema import HumanMessage, SystemMessage, AIMessage
 
 
 class AIClient:
-    """
-    AI 客户端封装类
-    负责与大模型服务（如 DeepSeek, ChatGPT）进行通信
-    """
+    def __init__(self):
+        # 构造函数留空，避免在 import 阶段触发 current_app 上下文错误
+        pass
 
-    def _get_client(self):
+    def _get_llm(self, temperature=0.7):
         """
-        内部方法：根据当前 app 配置初始化 OpenAI 客户端
+        内部辅助方法：动态获取配置并创建 LangChain 对象
         """
-        api_key = current_app.config.get("AI_API_KEY")
-        base_url = current_app.config.get("AI_BASE_URL")
+        api_key = current_app.config.get('AI_API_KEY')
+        base_url = current_app.config.get('AI_API_URL', 'https://api.deepseek.com')
+        model_name = current_app.config.get('AI_MODEL_NAME', 'deepseek-chat')
 
-        if not api_key:
-            current_app.logger.error("未配置 AI_API_KEY")
-            raise ValueError("未配置 AI_API_KEY，请在 config.py 或环境变量中设置。")
+        return ChatOpenAI(
+            model=model_name,
+            openai_api_key=api_key,
+            openai_api_base=base_url,
+            temperature=temperature,
+            streaming=True,
+            max_tokens=2000
+        )
 
-        # 初始化 OpenAI 客户端 (支持兼容 OpenAI 协议的其他模型，如 DeepSeek)
-        return OpenAI(api_key=api_key, base_url=base_url)
-
-    def get_response(self, messages, **kwargs):
+    def _convert_history_to_langchain(self, messages_list):
         """
-        普通对话 (用于生成报告)
-        支持传入 temperature, response_format 等参数
+        将原生字典列表转换为 LangChain 的 Message 对象列表
         """
-        client = self._get_client()
-        model = current_app.config.get("AI_MODEL_NAME", "deepseek-chat")
+        lc_messages = []
+        for msg in messages_list:
+            role = msg.get('role')
+            content = msg.get('content')
+            if role == 'system':
+                lc_messages.append(SystemMessage(content=content))
+            elif role == 'user':
+                lc_messages.append(HumanMessage(content=content))
+            elif role == 'assistant':
+                lc_messages.append(AIMessage(content=content))
+        return lc_messages
 
-        # 提取参数，设置默认值
-        temperature = kwargs.get('temperature', 0.7)
-        response_format = kwargs.get('response_format', None)  # 新增：支持 JSON 模式
-
+    def get_response(self, messages, temperature=0.7, **kwargs):
+        """
+        非流式调用 (用于生成报告、影子分析)
+        【修复】增加了 **kwargs 以接收 response_format 等额外参数
+        """
         try:
-            response = client.chat.completions.create(
-                model=model,
-                messages=messages,
-                temperature=temperature,
-                response_format=response_format,  # 关键：传给大模型
-                stream=False
-            )
-            return response.choices[0].message.content
+            llm = self._get_llm(temperature)
+
+            # 【关键修复】如果传入了 response_format (如强制 JSON)，需要绑定到模型
+            if 'response_format' in kwargs:
+                llm = llm.bind(response_format=kwargs['response_format'])
+
+            lc_messages = self._convert_history_to_langchain(messages)
+
+            # 调用 LangChain
+            response = llm.invoke(lc_messages)
+            return response.content
+
         except Exception as e:
-            current_app.logger.error(f"AI Service Error: {str(e)}")
-            raise e
+            if current_app:
+                current_app.logger.error(f"LangChain Invoke Error: {e}")
+            return "{}"  # 返回空 JSON 字符串防止解析炸裂
 
-    # 2. 流式方法也同步升级
-    def get_stream_response(self, messages, **kwargs):
+    def get_stream_response(self, messages, temperature=0.7, **kwargs):
         """
-        流式对话 (用于问诊聊天)
+        流式调用 (用于对话)
+        【修复】同样增加了 **kwargs 保持接口一致性
         """
-        client = self._get_client()
-        model = current_app.config.get("AI_MODEL_NAME", "deepseek-chat")
-
-        temperature = kwargs.get('temperature', 0.7)
-
         try:
-            response = client.chat.completions.create(
-                model=model,
-                messages=messages,
-                temperature=temperature,
-                stream=True
-            )
-            for chunk in response:
-                content = chunk.choices[0].delta.content
-                if content:
-                    yield content
+            llm = self._get_llm(temperature)
+
+            lc_messages = self._convert_history_to_langchain(messages)
+
+            for chunk in llm.stream(lc_messages):
+                if chunk.content:
+                    yield chunk.content
+
         except Exception as e:
-            current_app.logger.error(f"AI Stream Error: {str(e)}")
-            raise e
+            if current_app:
+                current_app.logger.error(f"LangChain Stream Error: {e}")
+            yield f"[AI连接错误: {str(e)}]"

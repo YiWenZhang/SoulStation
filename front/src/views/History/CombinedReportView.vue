@@ -284,7 +284,7 @@
                 <button
                   class="expand-btn"
                   @click="chatExpanded = !chatExpanded"
-                  v-if="displayableChatHistory.length > 4"
+                  v-if="displayableChatHistory.length > 0"
                 >
                   {{ chatExpanded ? '收起' : '展开全部' }}
                   <span class="expand-icon">{{ chatExpanded ? '↑' : '↓' }}</span>
@@ -847,10 +847,11 @@ const displayableChatHistory = computed((): FilteredChatMessage[] => {
 })
 
 // 显示的消息（根据展开状态）
+// 可选方案：收起时显示前2条作为预览
 const displayedMessages = computed(() => {
   const messages = displayableChatHistory.value
   if (chatExpanded.value) return messages
-  return messages.slice(0, 4)
+  return messages.slice(0, 2) // 收起时显示前2条
 })
 
 // 风险等级相关

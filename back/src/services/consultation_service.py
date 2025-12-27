@@ -215,52 +215,6 @@ class ConsultationService:
             return False
 
     @staticmethod
-    def _generate_diagnosis_summary(chat_history, consultation, ai_client, manual=False):
-        """
-        内部辅助：生成总结 (逻辑从 Route 搬运过来，保持 Service 纯净)
-        """
-        conversation_text = ""
-        for msg in chat_history:
-            if msg['role'] in ['user', 'assistant']:
-                role = "医生" if msg['role'] == 'assistant' else "患者"
-                conversation_text += f"{role}: {msg['content']}\n"
-
-        prompt_content = f"""
-    【指令】
-    你是专业的医疗文书记录员。请根据以下的医患对话记录，整理一份结构化的心理咨询病历（Markdown格式）。
-
-    【对话记录】
-    {conversation_text}
-
-    【输出要求】
-    1. **现状分析**：总结患者的核心症状、持续时间及诱发因素。
-    2. **风险评估**：明确指出是否存在自伤、自杀或社会功能受损风险。
-    3. **行动建议**：列出医生在对话中给出的具体建议。
-    {"4. **备注**：由于患者主动中断了问诊，以上结论可能基于不完整信息。" if manual else ""}
-
-    请直接输出 Markdown 内容。
-
-    【量化评估要求】
-        请根据对话内容，重新评估 SCL-90 各维度的当前分数（1.0-5.0，保留两位小数）。
-        并在回复的最后，以 JSON 格式输出如下数据：
-        {{
-          "scores": {{ "躯体化": 1.5, "抑郁": 3.2, ... }}
-        }}
-    """
-        messages = [
-            {"role": "system", "content": "你是一名心理医生助理。"},
-            {"role": "user", "content": prompt_content}
-        ]
-
-        # 调用 AI (非流式)
-        ai_raw_response = ai_client.get_response(messages)
-
-        # 调用自身的静态方法解析数据
-        ConsultationService.update_consultation_data(consultation, ai_raw_response)
-
-        return ai_raw_response
-
-    @staticmethod
     def process_chat_stream(consultation_id, user_content):
         # 1. 初始化
         ai_client = AIClient()
@@ -279,7 +233,25 @@ class ConsultationService:
         # 3. 【召唤智能体 A：咨询师】
         # 使用 build_consultant_messages 构建上下文
         # 这里的 history 包含了最新的 user_content
-        messages = prompt_builder.build_consultant_messages(consultation.report, history)
+        # --- 新增逻辑：获取上一次的分数作为复诊依据 ---
+        prev_scores = None
+        if consultation.sequence_number > 1:
+            # 查找同一份报告下的上一次问诊记录
+            prev_con = AIConsultation.query.filter_by(
+                report_id=consultation.report_id,
+                sequence_number=consultation.sequence_number - 1
+            ).first()
+            if prev_con:
+                prev_scores = prev_con.final_scores
+
+        # --- 修改点：传入 sequence_number 和 prev_scores ---
+        # 这里的 history 包含了最新的 user_content
+        messages = prompt_builder.build_consultant_messages(
+            consultation.report,
+            history,
+            sequence_number=consultation.sequence_number,  # 传入序号
+            prev_scores=prev_scores  # 传入上次 AI 分数
+        )
 
         full_ai_response = ""
         try:
@@ -301,7 +273,7 @@ class ConsultationService:
                 yield ("message", "\n\n[系统] 正在生成专业诊断报告，请稍候...")
 
                 # 传入完整的 history 给分析师
-                summary_data = ConsultationService._generate_report_with_agent_b(history, ai_client, prompt_builder)
+                summary_data = ConsultationService._generate_report_with_agent_b(history, ai_client, prompt_builder,consultation)
 
                 # 保存结果 (解析逻辑从 _generate_report_with_agent_b 内部返回)
                 consultation.diagnosis_summary = summary_data.get('diagnosis_summary')
@@ -331,30 +303,59 @@ class ConsultationService:
             pass
 
     @staticmethod
-    def _generate_report_with_agent_b(chat_history, ai_client, prompt_builder):
+    def _generate_report_with_agent_b(chat_history, ai_client, prompt_builder, consultation):
         """
-        专门的分析师智能体逻辑
+        专门的分析师智能体逻辑：重写版，支持动态传入基准分数
         """
-        # 1. 构建 Prompt
-        messages = prompt_builder.build_reporter_messages(chat_history)
+        # 1. 自动确定分析基准：
+        # 如果是复诊 (sequence_number > 1)，基准是上一轮 AI 修正后的 final_scores
+        # 如果是初诊，基准是 report 里的原始 radar_data
+        base_scores = None
+        if consultation.sequence_number > 1:
+            # 查找上一轮问诊记录
+            prev_con = consultation.__class__.query.filter_by(
+                report_id=consultation.report_id,
+                sequence_number=consultation.sequence_number - 1
+            ).first()
 
-        # 2. 调用 AI (非流式)
-        # 关键：temperature=0.2 (严谨), response_format='json_object' (结构化)
-        # 注意：DeepSeek 部分模型支持 response_format={"type": "json_object"}，需要确认 API 文档
-        # 如果不支持，temperature=0.1 配合 Prompt 里的 JSON 示例通常也够了
+            if prev_con and prev_con.final_scores:
+                base_scores = prev_con.final_scores
+                # 兼容处理 JSON 字符串情况
+                if isinstance(base_scores, str):
+                    try:
+                        base_scores = json.loads(base_scores)
+                    except:
+                        base_scores = consultation.report.radar_data
+            else:
+                # 没找到上一轮分数则退回原始数据
+                base_scores = consultation.report.radar_data
+        else:
+            # 初诊直接使用原始数据
+            base_scores = consultation.report.radar_data
+
+        # 2. 构建 Prompt：将 base_scores 传给分析师 B 的提示词生成方法
+        messages = prompt_builder.build_reporter_messages(chat_history, base_scores=base_scores)
+
+        # 3. 调用 AI (非流式)
+        # temperature=0.2 保持严谨，response_format 强制要求 JSON
         raw_content = ai_client.get_response(
             messages,
             temperature=0.2,
             response_format={"type": "json_object"}
         )
 
-        # 3. 解析 JSON
+        # 4. 解析 JSON 结果
         try:
-            # 清理一下 markdown code block 标记 (```json ... ```) 以防万一
+            # 清理 Markdown 代码块标记（如果有）
             clean_json = raw_content.replace("```json", "").replace("```", "").strip()
             data = json.loads(clean_json)
+
+            # 即使 AI 返回的是 {"scores": {...}}，外层也需要这个结构
             return data
         except json.JSONDecodeError:
-            print(f"JSON解析失败，AI返回了: {raw_content}")
-            # 兜底：如果 JSON 挂了，返回纯文本作为 summary
-            return {"diagnosis_summary": raw_content, "scores": {}}
+            print(f"JSON解析失败，分析师B返回了: {raw_content}")
+            # 兜底处理
+            return {
+                "diagnosis_summary": raw_content,
+                "scores": base_scores  # 报错时至少保留基准分数不丢失
+            }

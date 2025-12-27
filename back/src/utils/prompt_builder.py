@@ -18,42 +18,6 @@ class PromptBuilder:
             "diet_sleep": "其他"
         }
 
-    def build_messages(self, report, is_retry=False):
-        """
-        构建发送给 AI 的完整消息列表 (Messages)
-        :param report: AssessmentReport 对象
-        :param is_retry: 是否是重试（可选）
-        :return: [{"role": "system", ...}, {"role": "user", ...}]
-        """
-        # 1. 获取 AI 顶层配置 (人设)
-        system_prompt = self._get_base_system_prompt()
-
-        # 2. 构建用户当前的病情描述 (基于规则库)
-        patient_status = self._build_patient_status(report)
-
-        # 3. 构建历史病历 (如果是复诊)
-        history_context = self._build_history_context(report)
-
-        # 4. 组合最终 User Prompt
-        user_content = f"""
-【患者当前测评数据】
-{patient_status}
-
-【历史诊断记录】
-{history_context}
-
-【你的任务】
-请基于上述数据，模仿真实的心理医生进行{"复诊" if history_context != "无（初诊）" else "初诊"}。
-请直接给出你的分析结论、风险评估和建议，语气要温暖、专业。
-"""
-
-        return [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_content}
-        ]
-
-
-
     def _build_patient_status(self, report):
         """
             核心逻辑：支持多种数据格式解析，为 AI 提供精准的风险定性
@@ -154,87 +118,90 @@ class PromptBuilder:
 
 
     # === 智能体 A：咨询师 (Consultant) ===
-    def build_consultant_messages(self, report, history_messages=None):
-        """
-        构建【咨询师】的上下文
-        逻辑：数据库基础知识 + 咨询师专属人设
-        """
-        # 1. 获取数据库里的通用规则 (关键！)
+    def build_consultant_messages(self, report, history_messages=None, sequence_number=1, prev_scores=None):
+        # 获取通用的系统人设
         base_prompt = self._get_base_system_prompt()
 
-        # 2. 追加咨询师专属指令
-        role_instruction = """
-【当前角色任务】
-你现在的身份是“心理咨询师”。
-请利用上述规则，用温暖、共情、口语化的语气与患者对话。
-不要直接罗列冷冰冰的分数，而是通过对话引导患者表达。
-当判断问诊可以结束（如患者表示无话可说，或你已收集足够信息）时，
-请务必在回复的最后加上 <END_DIAGNOSIS> 标记。
-"""
-        final_system_prompt = f"{base_prompt}\n{role_instruction}"
+        # 直接从数据库字段组合数据看板
+        if sequence_number > 1 and prev_scores:
+            data_info = f"""
+    【患者数据看板】
+    - 原始测评得分：{report.radar_data}
+    - 上次 AI 修正得分：{prev_scores}
+    - 问诊阶段：第 {sequence_number} 次复诊
+    """
+            instruction = "请结合上次修正后的分数，重点询问患者近期情绪的变化趋势。"
+        else:
+            data_info = f"【患者原始测评得分】：{report.radar_data}"
+            instruction = "当前为初诊，请基于原始数据进行初步探讨。"
 
-        # 3. 获取患者画像
-        patient_status = self._build_patient_status(report)
-        user_context = f"【患者当前测评数据】\n{patient_status}\n请基于此数据与患者进行沟通。"
+        role_instruction = f"""
+    【当前角色任务】
+    你现在的身份是“心理咨询师”。
+    {data_info}
+    {instruction}
+    请用温暖、共情、口语化的语气对话。结束请带上 <END_DIAGNOSIS>。
+    """
 
-        messages = [{"role": "system", "content": final_system_prompt}]
-        messages.append({"role": "user", "content": user_context})
+        messages = [{"role": "system", "content": f"{base_prompt}\n{role_instruction}"}]
 
-        # 4. 拼接历史
+        # 填充对话历史
         if history_messages:
-            clean_history = [m for m in history_messages if m['role'] != 'system']
-            messages.extend(clean_history)
+            messages.extend([m for m in history_messages if m['role'] != 'system'])
 
         return messages
 
-
     # === 智能体 B：分析师 (Reporter) ===
-    def build_reporter_messages(self, chat_history):
+    def build_reporter_messages(self, chat_history, base_scores=None):
         """
         构建【分析师】的上下文
-        逻辑：数据库基础知识 + 分析师专属格式要求
+        :param base_scores: 关键！当前对话前的基准分数（初诊为原始分，复诊为上次修正分）
         """
-        # 1. 获取数据库里的通用规则 (关键！)
         base_prompt = self._get_base_system_prompt()
 
-        # 2. 将对话转为文本供分析
+        # 1. 转换对话文本
         conversation_text = ""
         for msg in chat_history:
             if msg['role'] in ['user', 'assistant']:
                 role = "医生" if msg['role'] == 'assistant' else "患者"
                 conversation_text += f"{role}: {msg['content']}\n"
 
-        # 3. 追加分析师专属指令
+        # 2. 角色指令保持冷静客观
         role_instruction = """
-【当前角色任务】
-你现在的身份是“医疗文书记录员”。
-请忽略之前的共情要求，保持绝对客观、冷静。
-你的任务是阅读医患对话记录，输出一份结构化的 JSON 格式病历。
-"""
+    【当前角色任务】
+    你现在的身份是“医疗文书记录员”。请保持绝对客观。
+    你的任务是结合“参考基准分数”与“最新的医患对话”，评估患者当前真实的 SCL-90 维度得分。
+    """
 
+        # 3. 动态构建任务描述
         user_task = f"""
 【对话记录】
 {conversation_text}
 
 【输出要求】
-请分析上述对话，返回严格的 JSON 数据 (不要Markdown格式)，包含：
-1. diagnosis_summary: 包含现状分析、风险评估、行动建议 (Markdown字符串)。
-2. scores: 重新评估的 SCL-90 分数 (key为中文维度名, value为数字)。
+返回严格 JSON 格式。
+
+【病历文书 (diagnosis_summary) 生成规范】
+1. **排版美观**：使用 Markdown 标题（###）、列表（-）、加粗（**）等符号，确保报告层级清晰。
+2. **内容深度**：
+   - **现状分析**：不仅总结症状，还要分析患者在对话中展现的深层心理机制。
+   - **风险评估**：根据 SCL-90 因子分，给出定性的专业解读。
+   - **行动建议**：给出具备可操作性的建议（如特定的认知调整技巧、生活方式建议）。
+3. **语言风格**：保持专业、冷静、客观，同时不失人文关怀。
 
 【关键评分指令】
-!!重要!! 请务必根据对话内容，对 SCL-90 的各项分数进行【重新量化评估】。
-!!重要!! 即使变化很小，也请根据患者在对话中的情绪表现（如焦虑减轻、认知改善或情绪恶化）调整分数。
-!!重要!! 严禁直接照搬原始分数，必须体现出本次问诊后的动态变化。
+!!重要!! 
+1. **对比修正**：请对比上述【参考基准分数】：{base_scores}，根据对话中患者表现出的症状缓解或加重，给出最新的量化得分。
+2. **动态体现**：严禁无视基准分数直接打分。如果对话显示某维度有好转，得分应在基准分基础上适当下降；反之上升，一定要有分数波动。
+3. **保持连贯**：确保分数的变化趋势符合医疗逻辑。
 
-【JSON示例】
+【JSON 示例】
 {{
-    "diagnosis_summary": "### 现状分析...",
+    "diagnosis_summary": "### 1. 现状分析\\n- **核心症状**：...\\n- **诱发因素**：...\\n\\n### 2. 风险评估\\n...",
     "scores": {{ "焦虑": 2.5, "抑郁": 1.2 }}
 }}
 """
-        final_system_prompt = f"{base_prompt}\n{role_instruction}"
-
         return [
-            {"role": "system", "content": final_system_prompt},
+            {"role": "system", "content": f"{base_prompt}\n{role_instruction}"},
             {"role": "user", "content": user_task}
         ]

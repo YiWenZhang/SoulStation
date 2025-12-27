@@ -133,6 +133,7 @@
                 <div class="risk-indicator">
                   <div class="indicator-bar">
                     <div class="indicator-fill" :style="{ width: riskPercentage + '%' }"></div>
+                    <div class="indicator-marker" :style="{ left: riskPercentage + '%' }"></div>
                   </div>
                   <div class="indicator-labels">
                     <span>良好</span>
@@ -1139,7 +1140,20 @@ const printReport = () => {
   border-radius: 4px;
   transition: width 1s ease;
 }
-
+/* 添加下面的样式 */
+.indicator-marker {
+  position: absolute;
+  top: 50%;
+  width: 18px;
+  height: 18px;
+  background: white;
+  border: 3px solid #263238;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  transition: left 1s ease;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  z-index: 1;
+}
 .indicator-labels {
   display: flex;
   justify-content: space-between;

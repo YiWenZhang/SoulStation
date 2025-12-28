@@ -449,7 +449,7 @@
               <div class="card-header">
                 <h3 class="card-title">
                   <span class="title-icon">📊</span>
-                  关键指标分析
+                  关键指标分析（前5个）
                 </h3>
               </div>
               <div class="metrics-list">
@@ -488,14 +488,62 @@
               </div>
               <div class="advice-body">
                 <div
-                  v-if="reportData.content?.advice_md"
+                  v-if="reportData.dimensions_detail && reportData.dimensions_detail.length > 0"
+                  class="custom-advice-list"
+                >
+                  <div
+                    class="dimension-detail-item"
+                    v-for="item in reportData.dimensions_detail"
+                    :key="item.name"
+                  >
+                    <div class="dim-header">
+                      <div class="dim-title-group">
+                        <h4 class="dim-title">{{ item.name }}</h4>
+                        <span class="dim-badge" :class="getRiskTagClass(item.score)">
+                          {{ item.level }}
+                        </span>
+                      </div>
+
+                      <div class="dim-score-box">
+                        <span
+                          class="dim-score-val"
+                          :class="{
+                            'score-color-good': item.score <= 2,
+                            'score-color-mod': item.score > 2 && item.score <= 3,
+                            'score-color-sev': item.score > 3,
+                          }"
+                        >
+                          {{ item.score }}
+                        </span>
+                        <span class="dim-score-label">分 / 5分</span>
+                      </div>
+                    </div>
+
+                    <div class="dim-progress-bg">
+                      <div
+                        class="dim-progress-fill"
+                        :style="{
+                          width: (item.score / 5) * 100 + '%',
+                          backgroundColor: getDimensionColor(item.score),
+                        }"
+                      ></div>
+                    </div>
+
+                    <p class="dim-desc"><strong>分析建议：</strong>{{ item.description }}</p>
+                  </div>
+                </div>
+
+                <div
+                  v-else-if="reportData.content?.advice_md"
                   class="markdown-content"
                   v-html="renderedMarkdown"
                 ></div>
+
                 <div v-else class="no-advice">
                   <p>暂无详细建议内容</p>
                 </div>
               </div>
+
               <div class="advice-footer">
                 <div class="disclaimer">
                   <span class="disclaimer-icon">⚠️</span>
@@ -557,12 +605,25 @@ interface DimensionItem {
   fullMark: number
 }
 
+// === 【修改点 1】新增维度详情的接口定义 ===
+interface DimensionDetail {
+  name: string
+  score: number
+  level: string
+  level_int: number
+  description: string
+}
+
 interface ReportData {
   base_info: {
     report_no: string
     date: string
     user_name: string
     mode_name: string
+    // === 【修改点 2】补充后端返回的总分和建议字段 ===
+    total_score?: number
+    total_avg?: number
+    overall_advice?: string
   }
   core_result: {
     risk_level: 'good' | 'moderate' | 'severe'
@@ -573,6 +634,8 @@ interface ReportData {
   charts: {
     radar_data: DimensionItem[]
   }
+  // === 【修改点 3】新增 dimensions_detail 数组 ===
+  dimensions_detail: DimensionDetail[]
   content: {
     advice_md: string
   }
@@ -1237,7 +1300,201 @@ const startNewChat = () => {
   background: linear-gradient(135deg, #f8f9ff 0%, #f0f7ff 50%, #e8f5e9 100%);
   position: relative;
 }
+/* === 优化后的维度列表样式 === */
 
+.custom-advice-list {
+  padding: 10px 0;
+}
+
+/* 综述头部 */
+.advice-section-header {
+  background: linear-gradient(135deg, rgba(0, 137, 123, 0.03), rgba(0, 137, 123, 0.08));
+  padding: 20px;
+  border-radius: 16px;
+  margin-bottom: 25px;
+}
+
+.advice-section-header h3 {
+  color: #00897b;
+  font-size: 18px;
+  margin-bottom: 12px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.summary-stats {
+  font-size: 15px;
+  color: #546e7a;
+  margin-bottom: 12px;
+}
+
+.summary-stats strong {
+  color: #263238;
+  font-size: 18px;
+  font-family: 'DIN Alternate', 'Roboto', sans-serif; /* 数字字体 */
+}
+
+.summary-quote {
+  background: #ffffff;
+  border-left: 4px solid #00897b;
+  padding: 12px 16px;
+  color: #455a64;
+  border-radius: 0 8px 8px 0;
+  font-size: 14px;
+  line-height: 1.6;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
+}
+
+.advice-divider {
+  border: 0;
+  height: 1px;
+  background: linear-gradient(
+    to right,
+    rgba(0, 137, 123, 0),
+    rgba(0, 137, 123, 0.2),
+    rgba(0, 137, 123, 0)
+  );
+  margin: 30px 0;
+}
+
+/* 维度详细列表容器 */
+.advice-section-body h3 {
+  color: #263238;
+  font-size: 18px;
+  margin-bottom: 20px;
+  padding-left: 10px;
+  border-left: 4px solid #00897b;
+  font-weight: 700;
+}
+
+/* === 核心：维度卡片美化 === */
+.dimension-detail-item {
+  background: #ffffff;
+  border-radius: 16px;
+  padding: 20px 24px;
+  margin-bottom: 18px;
+  /* 阴影更柔和 */
+  box-shadow:
+    0 4px 6px rgba(0, 0, 0, 0.02),
+    0 10px 15px rgba(0, 0, 0, 0.03);
+  border: 1px solid rgba(0, 0, 0, 0.03);
+  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+  position: relative;
+  overflow: hidden;
+}
+
+/* 鼠标悬停效果 */
+.dimension-detail-item:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 10px 25px rgba(0, 137, 123, 0.12);
+  border-color: rgba(0, 137, 123, 0.15);
+}
+
+/* 卡片顶部布局：标题左，分数右 */
+.dim-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 15px;
+}
+
+.dim-title-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.dim-title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  color: #37474f;
+}
+
+/* 徽标样式优化 */
+.dim-badge {
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  color: white;
+  letter-spacing: 0.5px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* 不同等级的颜色定义 (复用你的逻辑) */
+.dim-badge.tag-good {
+  background: linear-gradient(135deg, #66bb6a, #43a047);
+}
+.dim-badge.tag-moderate {
+  background: linear-gradient(135deg, #ffa726, #fb8c00);
+}
+.dim-badge.tag-severe {
+  background: linear-gradient(135deg, #ef5350, #e53935);
+}
+
+/* 右侧大分数 */
+.dim-score-box {
+  text-align: right;
+}
+.dim-score-val {
+  font-family: 'DIN Alternate', 'Roboto', sans-serif;
+  font-weight: 700;
+  font-size: 24px;
+  line-height: 1;
+  color: #00897b;
+}
+.dim-score-label {
+  font-size: 10px;
+  color: #90a4ae;
+  display: block;
+  margin-top: 2px;
+}
+
+/* 分数颜色变化 */
+.score-color-good {
+  color: #43a047;
+}
+.score-color-mod {
+  color: #fb8c00;
+}
+.score-color-sev {
+  color: #e53935;
+}
+
+/* 描述文本 */
+.dim-desc {
+  margin: 15px 0 0 0;
+  color: #546e7a;
+  font-size: 14px;
+  line-height: 1.7;
+  background: #fcfcfc; /* 极淡的背景区分 */
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px dashed rgba(0, 0, 0, 0.05);
+}
+
+.dim-desc strong {
+  color: #263238;
+  font-weight: 600;
+}
+
+/* === 新增：进度条装饰 === */
+/* 你需要在 HTML 模板里也加上这个 div 结构，如果不加，CSS 不会生效但也不会报错 */
+.dim-progress-bg {
+  height: 6px;
+  background: #f0f2f5;
+  border-radius: 3px;
+  margin-top: 10px;
+  overflow: hidden;
+  width: 100%;
+}
+.dim-progress-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 1s ease-out;
+}
 /* ============ 背景装饰 ============ */
 .background-decoration {
   position: fixed;

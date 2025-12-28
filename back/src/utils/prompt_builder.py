@@ -141,6 +141,9 @@ class PromptBuilder:
     {data_info}
     {instruction}
     请用温暖、共情、口语化的语气对话。结束请带上 <END_DIAGNOSIS>。
+    
+    【重要】
+    如果用户对测评的结果不清楚含义，不知道到底是出现了什么问题，请在对话的开始向他解释测评结果的含义，告诉他现状，重要的信息请加粗。
     """
 
         messages = [{"role": "system", "content": f"{base_prompt}\n{role_instruction}"}]
